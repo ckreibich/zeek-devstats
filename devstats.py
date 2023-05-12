@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 import argparse
 import contextlib
+import datetime
 import json
 import os
 import re
@@ -9,9 +10,9 @@ import subprocess
 import sys
 
 from collections import OrderedDict
-from datetime import datetime
 
 import git
+import texttable
 
 class Config:
     # Repos in which we count releases
@@ -45,14 +46,27 @@ class Config:
         "src/3rdparty",
     )
 
-    def __init__(self, since, until, rootdir):
-        self.since = since
-        self.until = until
+    def __init__(self, rootdir, since=None, until=None):
         self.rootdir = rootdir
+        self.since = self._get_datetime(since)
+        self.until = self._get_datetime(until)
+
+    def _get_datetime(self, date):
+        if date is None:
+            return date
+
+        dt = datetime.datetime.fromisoformat(date)
+        if dt.tzinfo is None:
+            dt = datetime.datetime(
+                dt.year, dt.month, dt.day, dt.hour,
+                dt.minute, dt.second, tzinfo=datetime.timezone.utc)
+
+        return dt
 
 
 class Analysis:
     REPORT_WIDTH = 50
+    REPO_WIDTH = 30
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -72,6 +86,22 @@ class Analysis:
             pass
         return alternative
 
+    def _build_git_args(self, args):
+        scope = []
+        if self.cfg.since is not None:
+            scope.append(["--since", self.cfg.since.isoformat()])
+        if self.cfg.until is not None:
+            scope.append(["--until", self.cfg.until.isoformat()])
+        return args + scope
+
+    def _print_table(self, table, title):
+        tstring = table.draw()
+        maxlen = max([len(row) for row in tstring.splitlines()])
+
+        print(title)
+        print("=" * maxlen)
+        print(tstring)
+
 
 class CommitsAnalysis(Analysis):
     def run(self):
@@ -87,26 +117,28 @@ class CommitsAnalysis(Analysis):
             repo = git.Repo(abs_repopath)
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
 
-            commits = repo.git.log("--oneline",
-                                   "--since", self.cfg.since,
-                                   "--until", self.cfg.until)
+            args = self._build_git_args(["--oneline"])
+            commits = repo.git.log(*args)
             res[reponame] = len(commits.splitlines())
 
         self.result = res
 
     def print(self):
-        total = 0
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(['repo', 'commits'])
+        table.set_cols_dtype(['t', 'i'])
+        table.set_cols_align(['l', 'r'])
 
-        print("Commits")
-        print("-" * self.REPORT_WIDTH)
+        total = 0
 
         for repo in sorted(self.result.keys()):
             commits = self.result[repo]
             total += commits
-            print(f"{repo:<40}     {commits:5}")
+            table.add_row([repo, commits])
 
-        print("-" * self.REPORT_WIDTH)
-        print(f"{'TOTAL':<40}     {total:5}")
+        table.add_row(['TOTAL', total])
+        self._print_table(table, "Commits")
 
 
 class ReleaseAnalysis(Analysis):
@@ -122,10 +154,10 @@ class ReleaseAnalysis(Analysis):
                 continue
 
             repo = git.Repo(abs_repopath)
-            commits = repo.git.log("--tags", "--simplify-by-decoration", "--oneline",
-                                   "--pretty=%H %D",
-                                   "--since", self.cfg.since,
-                                   "--until", self.cfg.until)
+            args = self._build_git_args(
+                ["--tags", "--simplify-by-decoration",
+                 "--oneline", "--pretty=%H %D"])
+            commits = repo.git.log(*args)
 
             version_re = re.compile(r"(v\d+\.\d+(\.\d+)?)(,|$)")
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
@@ -146,22 +178,27 @@ class ReleaseAnalysis(Analysis):
         self.result = res
 
     def print(self):
-        total = 0
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(['repo', 'major', 'total'])
+        table.set_cols_dtype(['t', 'i', 'i'])
+        table.set_cols_align(['l', 'r', 'r'])
 
-        print("Releases")
-        print("-" * self.REPORT_WIDTH)
+        total = 0
+        major = 0
 
         for repo in sorted(self.result.keys()):
-            print(repo)
+            table.add_row([repo, "", ""])
             for release in sorted(self.result[repo]):
-                suffix = ""
                 if release.endswith(".0"):
-                    suffix = "  (major)"
-                print(f"  {release}{suffix}")
+                    major += 1
+                    table.add_row([f"  {release}", "*", "*"])
+                else:
+                    table.add_row([f"  {release}", ".", "*"])
                 total += 1
 
-        print("-" * self.REPORT_WIDTH)
-        print(f"{'TOTAL':<40}     {total:5}")
+        table.add_row(['TOTAL', major, total])
+        self._print_table(table, "Releases")
 
 
 class MergeAnalysis(Analysis):
@@ -180,9 +217,8 @@ class MergeAnalysis(Analysis):
 
             repo = git.Repo(abs_repopath)
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
-            merges = repo.git.log("--merges", "--oneline",
-                                  "--since", self.cfg.since,
-                                  "--until", self.cfg.until)
+            args = self._build_git_args(["--merges", "--oneline"])
+            merges = repo.git.log(*args)
 
             merge_lines = merges.splitlines()
             res[reponame] = {'total': len(merge_lines)}
@@ -193,6 +229,26 @@ class MergeAnalysis(Analysis):
             res[reponame]['security'] = security_prs
 
         self.result = res
+
+    def print(self):
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(['repo', 'security', 'total'])
+        table.set_cols_dtype(['t', 'i', 'i'])
+        table.set_cols_align(['l', 'r', 'r'])
+
+        total = 0
+        sec_total = 0
+
+        for repo in sorted(self.result.keys()):
+            merges = self.result[repo]['total']
+            security = self.result[repo]['security']
+            total += merges
+            sec_total += security
+            table.add_row([repo, security, merges])
+
+        table.add_row(['TOTAL', sec_total, total])
+        self._print_table(table, "Merges")
 
 
 class PrAnalysis(Analysis):
@@ -215,24 +271,8 @@ class PrAnalysis(Analysis):
                 print(f"Skipping {repopath}, not a directory")
                 continue
 
-            # We need comparable timestamps so we can check whether a given PR
-            # got merged between --since and --until. So the user can provide
-            # these flexibly, we get the whole range of commits, but with
-            # ISO-format date strings, and grab earliest and latest. The
-            # rationale is that if there are no commits, there are no (merged)
-            # PRs.
             repo = git.Repo(abs_repopath)
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
-            commits = repo.git.log("--pretty=%ai",
-                                   "--since", self.cfg.since,
-                                   "--until", self.cfg.until)
-
-            commits = sorted(commits.splitlines())
-            if not commits:
-                continue
-
-            min_date = datetime.fromisoformat(commits[0])
-            max_date = datetime.fromisoformat(commits[-1])
 
             with contextlib.chdir(abs_repopath):
                 # Limit retrieval to 1000 PRs. If we ever do that many in one
@@ -240,30 +280,57 @@ class PrAnalysis(Analysis):
                 ret = subprocess.run(["gh", "pr", "list",
                                       "--state", "merged",
                                       "--limit", "1000",
-                                      "--json", "id,mergedAt,comments"],
+                                      "--json", "number,mergedAt,comments"],
                                      capture_output=True)
 
                 prdata = json.loads(ret.stdout)
                 comments = 0
                 prs = 0
+
+                # PRs come in in reverse chronological order.
                 for pr in prdata:
-                    merge_date = datetime.fromisoformat(pr["mergedAt"])
-                    if min_date <= merge_date and merge_date <= max_date:
-                        comments += len(pr["comments"])
-                        prs += 1
+                    merge_date = datetime.datetime.fromisoformat(pr["mergedAt"])
+                    if self.cfg.until and merge_date > self.cfg.until:
+                        # too new
+                        continue
+                    if self.cfg.since and merge_date < self.cfg.since:
+                        # too old -- as will be all others
+                        break
+                    comments += len(pr["comments"])
+                    prs += 1
 
                 res[reponame] = {"prs": prs, "comments": comments}
 
         self.result = res
+
+    def print(self):
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(['repo', 'prs', 'comments'])
+        table.set_cols_dtype(['t', 'i', 'i'])
+        table.set_cols_align(['l', 'r', 'r'])
+
+        total = 0
+        comments_total = 0
+
+        for repo in sorted(self.result.keys()):
+            prs = self.result[repo]['prs']
+            comments = self.result[repo]['comments']
+            total += prs
+            comments_total += comments
+            table.add_row([repo, prs, comments])
+
+        table.add_row(['TOTAL', total, comments_total])
+        self._print_table(table, "PRs")
 
 
 def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--since", metavar="DATE",
-                        help="Start date of analysis, e.g. 'Jan 1 2023'")
+                        help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
     parser.add_argument("--until", metavar="DATE",
-                        help="End date of analysis, e.g. 'Jan 1 2023'")
+                        help="End of analysis in ISO format, e.g. YYYY-MM-DD")
     parser.add_argument("--zeekroot", metavar="PATH",
                         help="Toplevel of local Zeek source git clone",
                         default=".")
@@ -273,13 +340,14 @@ def main():
     if args.since is None:
         print("Need a start date.")
         return 1
-    if args.until is None:
-        print("Need an end date.")
-        return 1
     if not os.path.isdir(args.zeekroot):
         print("Please provide local Zeek clone directory via --zeekroot.")
 
-    cfg = Config(args.since, args.until, args.zeekroot)
+    try:
+        cfg = Config(args.zeekroot, args.since, args.until)
+    except ValueError as err:
+        print("Configuration error: %s" % err)
+        return 1
 
     analyses = [
         CommitsAnalysis(cfg),
