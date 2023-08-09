@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import urllib.parse
 
@@ -16,6 +17,11 @@ from collections import OrderedDict
 
 import git
 import texttable
+
+
+def msg(content):
+    print(content, file=sys.stderr)
+
 
 class Config:
     # Repos in which we count releases
@@ -63,6 +69,8 @@ class Config:
 
     def __init__(self, rootdir, since=None, until=None):
         self.rootdir = rootdir
+        # These need to be datetimes, not dates, so we can compare smoothly to
+        # datetimes involved in git operations.
         self.since = self._get_datetime(since)
         self.until = self._get_datetime(until)
 
@@ -90,11 +98,11 @@ class Analysis:
     def run(self):
         pass
 
-    def print(self):
+    def print(self, other_runs=[]):
         pass
 
-    def err(self, msg):
-        print(msg, file=sys.stderr)
+    def add_totals_to_table(self, run, table):
+        pass
 
     def _get_reponame(self, url, alternative=None):
         try:
@@ -130,7 +138,7 @@ class CommitsAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                self.err(f"Skipping {repopath}, not a directory")
+                msg(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -142,7 +150,7 @@ class CommitsAnalysis(Analysis):
 
         self.result = res
 
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["repo", "commits"])
@@ -157,7 +165,19 @@ class CommitsAnalysis(Analysis):
             table.add_row([repo, commits])
 
         table.add_row(["TOTAL", total])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Commits")
+
+    def add_totals_to_table(self, run, table):
+        total = 0
+
+        for repo in sorted(self.result.keys()):
+            commits = self.result[repo]
+            total += commits
+
+        table.add_row([f"TOTAL in {run.timeframe()}", total])
 
 
 class ReleaseAnalysis(Analysis):
@@ -169,7 +189,7 @@ class ReleaseAnalysis(Analysis):
         for repopath in self.cfg.RELEASE_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                self.err(f"Skipping {repopath}, not a directory")
+                msg(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -196,7 +216,7 @@ class ReleaseAnalysis(Analysis):
 
         self.result = res
 
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["repo", "major", "total"])
@@ -217,7 +237,22 @@ class ReleaseAnalysis(Analysis):
                 total += 1
 
         table.add_row(["TOTAL", major, total])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Releases")
+
+    def add_totals_to_table(self, run, table):
+        total = 0
+        major = 0
+
+        for repo in sorted(self.result.keys()):
+            for release in sorted(self.result[repo]):
+                if release.endswith(".0"):
+                    major += 1
+                total += 1
+
+        table.add_row([f"TOTAL in {run.timeframe()}", major, total])
 
 
 class MergeAnalysis(Analysis):
@@ -229,7 +264,7 @@ class MergeAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                self.err(f"Skipping {repopath}, not a directory")
+                msg(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -247,7 +282,7 @@ class MergeAnalysis(Analysis):
 
         self.result = res
 
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["repo", "security", "total"])
@@ -265,7 +300,22 @@ class MergeAnalysis(Analysis):
             table.add_row([repo, security, merges])
 
         table.add_row(["TOTAL", total_sec, total])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Merges")
+
+    def add_totals_to_table(self, run, table):
+        total = 0
+        total_sec = 0
+
+        for repo in sorted(self.result.keys()):
+            merges = self.result[repo]["total"]
+            security = self.result[repo]["security"]
+            total += merges
+            total_sec += security
+
+        table.add_row([f"TOTAL in {run.timeframe()}", total_sec, total])
 
 
 class PrAnalysis(Analysis):
@@ -282,7 +332,7 @@ class PrAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                self.err(f"Skipping {repopath}, not a directory")
+                msg(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -324,7 +374,7 @@ class PrAnalysis(Analysis):
                                  "contribs": contribs}
         self.result = res
 
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["repo", "comments", "contribs", "total"])
@@ -347,7 +397,26 @@ class PrAnalysis(Analysis):
             table.add_row([repo, comments, contribs, prs])
 
         table.add_row(["TOTAL", total_comments, total_contribs, total])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Pull Requests")
+
+    def add_totals_to_table(self, run, table):
+        total = 0
+        total_comments = 0
+        total_contribs = 0
+
+        for repo in sorted(self.result.keys()):
+            prs = self.result[repo]["total"]
+            comments = self.result[repo]["comments"]
+            contribs = self.result[repo]["contribs"]
+
+            total += prs
+            total_comments += comments
+            total_contribs += contribs
+
+        table.add_row([f"TOTAL in {run.timeframe()}", total_comments, total_contribs, total])
 
 
 class IssueAnalysis(Analysis):
@@ -364,7 +433,7 @@ class IssueAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                self.err(f"Skipping {repopath}, not a directory")
+                msg(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -416,7 +485,7 @@ class IssueAnalysis(Analysis):
                                  "contribs": contribs}
         self.result = res
 
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["repo", "opened", "closed", "contribs", "active"])
@@ -442,7 +511,31 @@ class IssueAnalysis(Analysis):
             table.add_row([repo, opened, closed, contribs, active])
 
         table.add_row(["TOTAL", total_opened, total_closed, total_contribs, total_active])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Issues")
+
+    def add_totals_to_table(self, run, table):
+        total_active = 0
+        total_opened = 0
+        total_closed = 0
+        total_contribs = 0
+
+        for repo in sorted(self.result.keys()):
+            active = self.result[repo]["active"]
+            opened = self.result[repo]["opened"]
+            closed = self.result[repo]["closed"]
+            contribs = self.result[repo]["contribs"]
+
+            total_active += active
+            total_opened += opened
+            total_closed += closed
+            total_contribs += contribs
+
+        table.add_row([f"TOTAL in {run.timeframe()}",
+                       total_opened, total_closed,
+                       total_contribs, total_active])
 
 
 class DiscourseAnalysis(Analysis):
@@ -480,12 +573,12 @@ class DiscourseAnalysis(Analysis):
 
             with urllib.request.urlopen(req) as query:
                 if query.status != 200:
-                    self.err(f"HTTP query error, status code {query.status}")
+                    msg(f"HTTP query error, status code {query.status}")
                     continue
                 try:
                     searchdata = json.loads(query.read())
                 except json.decoder.JSONDecodeError:
-                    self.err("JSON error decoding search query result")
+                    msg("JSON error decoding search query result")
                     continue
 
             topics = set()
@@ -495,9 +588,6 @@ class DiscourseAnalysis(Analysis):
                 topics.add(post["topic_id"])
 
             for topic in topics:
-                # XXX this currently has no rate-limiting -- apparently the
-                # Discourse API will object once we hit 60 queries per minute.
-
                 req = urllib.request.Request(
                     f"{self.SERVER}/t/{topic}.json",
                     headers={
@@ -517,12 +607,16 @@ class DiscourseAnalysis(Analysis):
                             continue
                 except urllib.error.HTTPError as err:
                     if err.code == 429:
-                        self.err("HTTP rate limit hit, aborting analysis")
+                        msg("HTTP rate limit hit, aborting analysis")
                         return
                     else:
-                        self.err(f"HTTP error: {err}")
+                        msg(f"HTTP error: {err}")
 
                 total_posts += topicdata["posts_count"]
+
+                # Basic rate-limiting -- apparently the Discourse API will
+                # object once we hit 60 queries per minute.
+                time.sleep(1)
 
             res[category] = {
                 "topics": len(topics),
@@ -531,8 +625,7 @@ class DiscourseAnalysis(Analysis):
 
         self.result = res
 
-
-    def print(self):
+    def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
         table.header(["category", "topics", "posts"])
@@ -547,8 +640,111 @@ class DiscourseAnalysis(Analysis):
             total_posts += data["posts"]
 
         table.add_row(["TOTAL", total_topics, total_posts])
+        for run in other_runs:
+            run.analyses[self.NAME].add_totals_to_table(run, table)
+
         self._print_table(table, "Discourse Support")
 
+    def add_totals_to_table(self, run, table):
+        total_topics, total_posts = 0, 0
+
+        for category, data in self.result.items():
+            total_topics += data["topics"]
+            total_posts += data["posts"]
+
+        table.add_row([f"TOTAL in {run.timeframe()}", total_topics, total_posts])
+
+
+class Quarter:
+    START_MONTHS = [11,8,5,2]
+    NAMES = {2: "Q1", 5: "Q2", 8: "Q3", 11: "Q4"}
+    LENGTH_MONTHS = 3
+
+    def __init__(self, lookupdate=None):
+        self.startdate = None
+        self.enddate = None
+
+        if lookupdate is None:
+            lookupdate = datetime.date.today()
+
+        for month in self.START_MONTHS:
+            if month > lookupdate.month:
+                continue
+            self.startdate = datetime.date(lookupdate.year, month, 1)
+            if month + self.LENGTH_MONTHS > 12:
+                self.enddate = datetime.date(
+                    lookupdate.year + 1, (month + self.LENGTH_MONTHS) % 12, 1)
+            else:
+                self.enddate = datetime.date(
+                    lookupdate.year, (month + self.LENGTH_MONTHS) % 12, 1)
+            return
+
+        # If we get here it's January, so the quarter started in the year prior.
+        self.startdate = datetime.date(lookupdate.year-1, 11, 1)
+        self.enddate = datetime.date(lookupdate.year, 2, 1)
+
+    def __repr__(self):
+        return f"{self.name()} {self.startdate.year}"
+
+    def name(self):
+        return self.NAMES[self.startdate.month]
+
+    def previous(self):
+        return Quarter(self.startdate - datetime.timedelta(days=1))
+
+    def next(self):
+        return Quarter(self.enddate)
+
+
+class Run:
+    def __init__(self, args, quarter=None):
+        self.args = args
+        self.quarter = quarter
+        self.analyses = OrderedDict()
+
+        if quarter is not None:
+            self.cfg = Config(args.zeekroot, str(quarter.startdate), str(quarter.enddate))
+        else:
+            self.cfg = Config(args.zeekroot, args.since, args.until)
+
+        for cls in Analysis.__subclasses__():
+            if args.analysis and cls.NAME.lower() != args.analysis.lower():
+                continue
+            try:
+                an = cls(self.cfg)
+                self.analyses[an.NAME] = an
+            except Exception as err:
+                msg(f"Initialization error for {cls.__name__} ({err}), skipping")
+
+    def run(self):
+        for _, an in self.analyses.items():
+            if self.args.verbose:
+                msg(f"Running {an.NAME} for {self.timeframe()}")
+            an.run()
+
+    def timeframe(self):
+        if self.quarter is not None:
+            return str(self.quarter)
+        if self.cfg.until is not None:
+            return f"{self.cfg.since.date()} - {self.cfg.until.date()}"
+        return f"{self.cfg.since.date()} - today"
+
+
+class Report:
+    def __init__(self, runs):
+        self.runs = runs
+
+    def print(self):
+        print("ZEEK ACTIVITY REPORT")
+        print("====================")
+        print()
+        print(self.runs[0].timeframe())
+        print()
+
+        for _, an in self.runs[0].analyses.items():
+            if an.result is not None:
+                an.print(self.runs[1:])
+            print()
 
 
 def main():
@@ -556,6 +752,9 @@ def main():
 
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--verbose", action="store_true",
+                        help="Verbose output to stderr during calculations",
+                        default=False)
     parser.add_argument("--since", metavar="DATE",
                         help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
     parser.add_argument("--until", metavar="DATE",
@@ -568,43 +767,44 @@ def main():
 
     args = parser.parse_args()
 
-    if args.since is None:
-        print("Need a start date.")
-        return 1
     if not os.path.isdir(args.zeekroot):
-        print("Please provide local Zeek clone directory via --zeekroot.")
-
-    try:
-        cfg = Config(args.zeekroot, args.since, args.until)
-    except ValueError as err:
-        print("Configuration error: %s" % err)
+        msg("Please provide local Zeek clone directory via --zeekroot.")
         return 1
 
-    analyses = []
+    # Without explicit start/end dates, we compare the past 3 quarters.
+    if args.since is None and args.until is None:
+        q1 = Quarter().previous()
+        q2 = q1.previous()
+        q3 = q2.previous()
+        runs = []
 
-    for cls in Analysis.__subclasses__():
+        # The quarters go back in time:
+        for q in [q1, q2, q3]:
+            try:
+                run = Run(args, quarter=q)
+            except ValueError as err:
+                msg("Configuration error, skipping: %s" % err)
+                continue
+            run.run()
+            runs.append(run)
+
+        report = Report(runs)
+        report.print()
+    else:
+        if args.since is None:
+            msg("Need a start date.")
+            return 1
+
         try:
-            analyses.append(cls(cfg))
-        except Exception as err:
-            print(f"Initialization error for {cls.__name__} ({err}), skipping",
-                  file=sys.stderr)
+            run = Run(args)
+        except ValueError as err:
+            msg("Configuration error: %s" % err)
+            return 1
 
-    print("ZEEK ACTIVITY REPORT")
-    print("====================")
-    print()
-    print(f"Since: {cfg.since}")
-    print(f"Until: {cfg.until if cfg.until else 'now'}")
-    print()
+        run.run()
 
-    for an in analyses:
-        if args.analysis and an.NAME.lower() != args.analysis.lower():
-            continue
-
-        an.run()
-
-        if an.result is not None:
-            an.print()
-        print()
+        report = Report([run])
+        report.print()
 
     return 0
 
