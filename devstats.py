@@ -4,10 +4,13 @@ import contextlib
 import datetime
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import urllib.request
+import urllib.parse
 
 from collections import OrderedDict
 
@@ -90,6 +93,9 @@ class Analysis:
     def print(self):
         pass
 
+    def err(self, msg):
+        print(msg, file=sys.stderr)
+
     def _get_reponame(self, url, alternative=None):
         try:
             parts = url.split("/")
@@ -124,7 +130,7 @@ class CommitsAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                print(f"Skipping {repopath}, not a directory")
+                self.err(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -139,9 +145,9 @@ class CommitsAnalysis(Analysis):
     def print(self):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
-        table.header(['repo', 'commits'])
-        table.set_cols_dtype(['t', 'i'])
-        table.set_cols_align(['l', 'r'])
+        table.header(["repo", "commits"])
+        table.set_cols_dtype(["t", "i"])
+        table.set_cols_align(["l", "r"])
 
         total = 0
 
@@ -150,7 +156,7 @@ class CommitsAnalysis(Analysis):
             total += commits
             table.add_row([repo, commits])
 
-        table.add_row(['TOTAL', total])
+        table.add_row(["TOTAL", total])
         self._print_table(table, "Commits")
 
 
@@ -163,7 +169,7 @@ class ReleaseAnalysis(Analysis):
         for repopath in self.cfg.RELEASE_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                print(f"Skipping {repopath}, not a directory")
+                self.err(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -193,9 +199,9 @@ class ReleaseAnalysis(Analysis):
     def print(self):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
-        table.header(['repo', 'major', 'total'])
-        table.set_cols_dtype(['t', 'i', 'i'])
-        table.set_cols_align(['l', 'r', 'r'])
+        table.header(["repo", "major", "total"])
+        table.set_cols_dtype(["t", "i", "i"])
+        table.set_cols_align(["l", "r", "r"])
 
         total = 0
         major = 0
@@ -210,7 +216,7 @@ class ReleaseAnalysis(Analysis):
                     table.add_row([f"  {release}", ".", "*"])
                 total += 1
 
-        table.add_row(['TOTAL', major, total])
+        table.add_row(["TOTAL", major, total])
         self._print_table(table, "Releases")
 
 
@@ -223,7 +229,7 @@ class MergeAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                print(f"Skipping {repopath}, not a directory")
+                self.err(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -232,33 +238,33 @@ class MergeAnalysis(Analysis):
             merges = repo.git.log(*args)
 
             merge_lines = merges.splitlines()
-            res[reponame] = {'total': len(merge_lines)}
+            res[reponame] = {"total": len(merge_lines)}
             security_prs = 0
             for line in merge_lines:
-                if 'security/topic' in line:
+                if "security/topic" in line:
                     security_prs += 1
-            res[reponame]['security'] = security_prs
+            res[reponame]["security"] = security_prs
 
         self.result = res
 
     def print(self):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
-        table.header(['repo', 'security', 'total'])
-        table.set_cols_dtype(['t', 'i', 'i'])
-        table.set_cols_align(['l', 'r', 'r'])
+        table.header(["repo", "security", "total"])
+        table.set_cols_dtype(["t", "i", "i"])
+        table.set_cols_align(["l", "r", "r"])
 
         total = 0
         total_sec = 0
 
         for repo in sorted(self.result.keys()):
-            merges = self.result[repo]['total']
-            security = self.result[repo]['security']
+            merges = self.result[repo]["total"]
+            security = self.result[repo]["security"]
             total += merges
             total_sec += security
             table.add_row([repo, security, merges])
 
-        table.add_row(['TOTAL', total_sec, total])
+        table.add_row(["TOTAL", total_sec, total])
         self._print_table(table, "Merges")
 
 
@@ -276,7 +282,7 @@ class PrAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                print(f"Skipping {repopath}, not a directory")
+                self.err(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -358,7 +364,7 @@ class IssueAnalysis(Analysis):
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
             if not os.path.isdir(abs_repopath):
-                print(f"Skipping {repopath}, not a directory")
+                self.err(f"Skipping {repopath}, not a directory")
                 continue
 
             repo = git.Repo(abs_repopath)
@@ -439,7 +445,115 @@ class IssueAnalysis(Analysis):
         self._print_table(table, "Issues")
 
 
+class DiscourseAnalysis(Analysis):
+    NAME = "discourse"
+
+    # File that contains API key for running GET queries against Discourse
+    API_KEY_FILE = pathlib.Path.home() / ".config" / "discourse" / "key"
+    # Our discourse server
+    SERVER = "https://community.zeek.org"
+
+    def __init__(self, cfg):
+        super().__init__(cfg)
+        with open(self.API_KEY_FILE) as hdl:
+            self.api_key = hdl.readline().strip()
+
+    def run(self):
+        res = OrderedDict()
+
+        for category in ["Zeek", "Development"]:
+            queryparts = ["%23" + category]
+
+            if self.cfg.since is not None:
+                queryparts.append(f"after:{self.cfg.since.date()}")
+            if self.cfg.until is not None:
+                queryparts.append(f"before:{self.cfg.until.date()}")
+
+            querystring = "q=" + "+".join(queryparts)
+
+            req = urllib.request.Request(
+                f"{self.SERVER}/search.json?{querystring}",
+                headers={
+                    "Api-Key": self.api_key,
+                    "Api-Username": "christian",
+                })
+
+            with urllib.request.urlopen(req) as query:
+                if query.status != 200:
+                    self.err(f"HTTP query error, status code {query.status}")
+                    continue
+                try:
+                    searchdata = json.loads(query.read())
+                except json.decoder.JSONDecodeError:
+                    self.err("JSON error decoding search query result")
+                    continue
+
+            topics = set()
+            total_posts = 0
+
+            for post in searchdata["posts"]:
+                topics.add(post["topic_id"])
+
+            for topic in topics:
+                # XXX this currently has no rate-limiting -- apparently the
+                # Discourse API will object once we hit 60 queries per minute.
+
+                req = urllib.request.Request(
+                    f"{self.SERVER}/t/{topic}.json",
+                    headers={
+                        "Api-Key": self.api_key,
+                        "Api-Username": "christian",
+                    })
+
+                try:
+                    with urllib.request.urlopen(req) as query:
+                        if query.status != 200:
+                            print(f"HTTP query error, status code {query.status}")
+                            continue
+                        try:
+                            topicdata = json.loads(query.read())
+                        except json.decoder.JSONDecodeError:
+                            print("JSON error decoding topic query result")
+                            continue
+                except urllib.error.HTTPError as err:
+                    if err.code == 429:
+                        self.err("HTTP rate limit hit, aborting analysis")
+                        return
+                    else:
+                        self.err(f"HTTP error: {err}")
+
+                total_posts += topicdata["posts_count"]
+
+            res[category] = {
+                "topics": len(topics),
+                "posts": total_posts,
+            }
+
+        self.result = res
+
+
+    def print(self):
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(["category", "topics", "posts"])
+        table.set_cols_dtype(["t", "i", "i"])
+        table.set_cols_align(["l", "r", "r"])
+
+        total_topics, total_posts = 0, 0
+
+        for category, data in self.result.items():
+            table.add_row([category, data["topics"], data["posts"]])
+            total_topics += data["topics"]
+            total_posts += data["posts"]
+
+        table.add_row(["TOTAL", total_topics, total_posts])
+        self._print_table(table, "Discourse Support")
+
+
+
 def main():
+    analysis_names = [cls.NAME for cls in Analysis.__subclasses__()]
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--since", metavar="DATE",
@@ -447,7 +561,7 @@ def main():
     parser.add_argument("--until", metavar="DATE",
                         help="End of analysis in ISO format, e.g. YYYY-MM-DD")
     parser.add_argument("--analysis", metavar="NAME",
-                        help="Run only one given analysis: commits, releases merges, prs, issues")
+                        help=f"Run only one analysis: {', '.join(analysis_names)}")
     parser.add_argument("--zeekroot", metavar="PATH",
                         help="Toplevel of local Zeek source git clone",
                         default=".")
@@ -466,13 +580,14 @@ def main():
         print("Configuration error: %s" % err)
         return 1
 
-    analyses = [
-        CommitsAnalysis(cfg),
-        ReleaseAnalysis(cfg),
-        MergeAnalysis(cfg),
-        PrAnalysis(cfg),
-        IssueAnalysis(cfg),
-    ]
+    analyses = []
+
+    for cls in Analysis.__subclasses__():
+        try:
+            analyses.append(cls(cfg))
+        except Exception as err:
+            print(f"Initialization error for {cls.__name__} ({err}), skipping",
+                  file=sys.stderr)
 
     print("ZEEK ACTIVITY REPORT")
     print("====================")
@@ -484,8 +599,11 @@ def main():
     for an in analyses:
         if args.analysis and an.NAME.lower() != args.analysis.lower():
             continue
+
         an.run()
-        an.print()
+
+        if an.result is not None:
+            an.print()
         print()
 
     return 0
