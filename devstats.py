@@ -339,17 +339,17 @@ class PrAnalysis(Analysis):
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
 
             with contextlib.chdir(abs_repopath):
-                # Limit retrieval to 1000 PRs. If we ever do that many in one
-                # quarter, well, ... good for us.
+                # Higher limits (like the original 1000) can lead to "transform: short source buffer" messages.
                 ret = subprocess.run(["gh", "pr", "list",
                                       "--state", "merged",
-                                      "--limit", "1000",
+                                      "--limit", "500",
                                       "--json", "number,author,mergedAt,comments"],
                                      capture_output=True)
 
                 try:
                     prdata = json.loads(ret.stdout)
-                except json.decoder.JSONDecodeError:
+                except json.decoder.JSONDecodeError as err:
+                    msg(f"JSON error decoding 'gh pr list' result: {err}")
                     continue
 
                 total = 0
@@ -440,8 +440,6 @@ class IssueAnalysis(Analysis):
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
 
             with contextlib.chdir(abs_repopath):
-                # Limit retrieval to 1000 PRs. If we ever do that many in one
-                # quarter, well, ... good for us.
                 ret = subprocess.run(["gh", "issue", "list",
                                       "--state", "all",
                                       "--limit", "1000",
@@ -450,7 +448,8 @@ class IssueAnalysis(Analysis):
 
                 try:
                     issdata = json.loads(ret.stdout)
-                except json.decoder.JSONDecodeError:
+                except json.decoder.JSONDecodeError as err:
+                    msg(f"JSON error decoding 'gh issue list' result: {err}")
                     continue
 
                 active = 0
