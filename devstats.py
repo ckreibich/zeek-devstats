@@ -66,6 +66,23 @@ class Config:
         "timwoj",
     }
 
+    # Same, but for other Corelight folks.
+    CORELIGHTERS = {
+        "ajs1k",
+        "benjeems",
+        "ekoyle",
+        "JustinAzoff",
+        "markoverholser",
+        "keithjjones",
+        "pauldokas",
+        "retr0h",
+        "sethhall",
+        "stevesmoot",
+        "simeonmiteff",
+        "vpax",
+        "ynadji",
+    }
+
     def __init__(self, rootdir, since=None, until=None):
         self.rootdir = rootdir
         # These need to be datetimes, not dates, so we can compare smoothly to
@@ -353,6 +370,7 @@ class PrAnalysis(Analysis):
 
                 total = 0
                 comments = 0
+                cl_contribs = 0
                 contribs = 0
 
                 for pr in prdata:
@@ -364,38 +382,45 @@ class PrAnalysis(Analysis):
                         break # too old -- as will be all others
 
                     if pr["author"]["login"].lower() not in self.cfg.MERGE_MASTERS:
-                        contribs += 1
+                        if pr["author"]["login"].lower() in self.cfg.CORELIGHTERS:
+                            cl_contribs += 1
+                        else:
+                            contribs += 1
                     comments += len(pr["comments"])
                     total += 1
 
                 res[reponame] = {"total": total,
                                  "comments": comments,
+                                 "cl_contribs": cl_contribs,
                                  "contribs": contribs}
         self.result = res
 
     def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
-        table.header(["repo", "comments", "contribs", "total"])
-        table.set_cols_dtype(["t", "i", "i", "i"])
-        table.set_cols_align(["l", "r", "r", "r"])
+        table.header(["repo", "comments", "cl_contribs", "contribs", "total"])
+        table.set_cols_dtype(["t", "i", "i", "i", "i"])
+        table.set_cols_align(["l", "r", "r", "r", "r"])
 
         total = 0
         total_comments = 0
+        total_cl_contribs = 0
         total_contribs = 0
 
         for repo in sorted(self.result.keys()):
             prs = self.result[repo]["total"]
             comments = self.result[repo]["comments"]
+            cl_contribs = self.result[repo]["cl_contribs"]
             contribs = self.result[repo]["contribs"]
 
             total += prs
             total_comments += comments
+            total_cl_contribs += cl_contribs
             total_contribs += contribs
 
-            table.add_row([repo, comments, contribs, prs])
+            table.add_row([repo, comments, cl_contribs, contribs, prs])
 
-        table.add_row(["TOTAL", total_comments, total_contribs, total])
+        table.add_row(["TOTAL", total_comments, total_cl_contribs, total_contribs, total])
         for run in other_runs:
             run.analyses[self.NAME].add_totals_to_table(run, table)
 
@@ -404,18 +429,23 @@ class PrAnalysis(Analysis):
     def add_totals_to_table(self, run, table):
         total = 0
         total_comments = 0
+        total_cl_contribs = 0
         total_contribs = 0
 
         for repo in sorted(self.result.keys()):
             prs = self.result[repo]["total"]
             comments = self.result[repo]["comments"]
+            cl_contribs = self.result[repo]["cl_contribs"]
             contribs = self.result[repo]["contribs"]
 
             total += prs
             total_comments += comments
+            total_cl_contribs += cl_contribs
             total_contribs += contribs
 
-        table.add_row([f"TOTAL in {run.timeframe()}", total_comments, total_contribs, total])
+        table.add_row([f"TOTAL in {run.timeframe()}",
+                       total_comments, total_cl_contribs,
+                       total_contribs, total])
 
 
 class IssueAnalysis(Analysis):
@@ -454,6 +484,7 @@ class IssueAnalysis(Analysis):
                 active = 0
                 opened = 0
                 closed = 0
+                cl_contribs = 0
                 contribs = 0
 
                 for iss in issdata:
@@ -469,7 +500,10 @@ class IssueAnalysis(Analysis):
                         if self.cfg.since and open_date > self.cfg.since:
                             opened += 1
                             if iss["author"]["login"].lower() not in self.cfg.MERGE_MASTERS:
-                                contribs += 1
+                                if iss["author"]["login"].lower() in self.cfg.CORELIGHTERS:
+                                    cl_contribs += 1
+                                else:
+                                    contribs += 1
 
                     if close_date is not None:
                         if self.cfg.until and close_date > self.cfg.until:
@@ -480,35 +514,40 @@ class IssueAnalysis(Analysis):
                 res[reponame] = {"active": active,
                                  "opened": opened,
                                  "closed": closed,
+                                 "cl_contribs": cl_contribs,
                                  "contribs": contribs}
         self.result = res
 
     def print(self, other_runs=[]):
         table = texttable.Texttable()
         table.set_deco(table.HEADER)
-        table.header(["repo", "opened", "closed", "contribs", "active"])
-        table.set_cols_dtype(["t", "i", "i", "i", "i"])
-        table.set_cols_align(["l", "r", "r", "r", "r"])
+        table.header(["repo", "opened", "closed", "cl_contribs", "contribs", "active"])
+        table.set_cols_dtype(["t", "i", "i", "i", "i", "i"])
+        table.set_cols_align(["l", "r", "r", "r", "r", "r"])
 
         total_active = 0
         total_opened = 0
         total_closed = 0
+        total_cl_contribs = 0
         total_contribs = 0
 
         for repo in sorted(self.result.keys()):
             active = self.result[repo]["active"]
             opened = self.result[repo]["opened"]
             closed = self.result[repo]["closed"]
+            cl_contribs = self.result[repo]["cl_contribs"]
             contribs = self.result[repo]["contribs"]
 
             total_active += active
             total_opened += opened
             total_closed += closed
+            total_cl_contribs += cl_contribs
             total_contribs += contribs
 
-            table.add_row([repo, opened, closed, contribs, active])
+            table.add_row([repo, opened, closed, cl_contribs, contribs, active])
 
-        table.add_row(["TOTAL", total_opened, total_closed, total_contribs, total_active])
+        table.add_row(["TOTAL", total_opened, total_closed, total_cl_contribs,
+                       total_contribs, total_active])
         for run in other_runs:
             run.analyses[self.NAME].add_totals_to_table(run, table)
 
@@ -518,21 +557,24 @@ class IssueAnalysis(Analysis):
         total_active = 0
         total_opened = 0
         total_closed = 0
+        total_cl_contribs = 0
         total_contribs = 0
 
         for repo in sorted(self.result.keys()):
             active = self.result[repo]["active"]
             opened = self.result[repo]["opened"]
             closed = self.result[repo]["closed"]
+            cl_contribs = self.result[repo]["cl_contribs"]
             contribs = self.result[repo]["contribs"]
 
             total_active += active
             total_opened += opened
             total_closed += closed
+            total_cl_contribs += cl_contribs
             total_contribs += contribs
 
         table.add_row([f"TOTAL in {run.timeframe()}",
-                       total_opened, total_closed,
+                       total_opened, total_closed, total_cl_contribs,
                        total_contribs, total_active])
 
 
