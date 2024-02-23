@@ -348,7 +348,7 @@ class PrAnalysis(Analysis):
                 try:
                     prdata = json.loads(ret.stdout)
                 except json.decoder.JSONDecodeError as err:
-                    msg(f"JSON error decoding 'gh pr list' result: {err}")
+                    msg(f"JSON error decoding 'gh pr list' result in {repopath}: {err}")
                     continue
 
                 total = 0
@@ -448,7 +448,7 @@ class IssueAnalysis(Analysis):
                 try:
                     issdata = json.loads(ret.stdout)
                 except json.decoder.JSONDecodeError as err:
-                    msg(f"JSON error decoding 'gh issue list' result: {err}")
+                    msg(f"JSON error decoding 'gh issue list' result in {repopath}: {err}")
                     continue
 
                 active = 0
