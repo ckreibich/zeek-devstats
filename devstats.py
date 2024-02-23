@@ -27,7 +27,7 @@ class Config:
     # Repos in which we count releases
     RELEASE_REPOS = (
         "", # Zeek itself
-        "auxil/spicy/spicy"
+        "auxil/spicy"
     )
 
     # Repos in which we count commits / PRs
@@ -42,8 +42,7 @@ class Config:
         "auxil/package-manager",
         "auxil/paraglob",
         "auxil/rapidjson",
-        "auxil/spicy-plugin",
-        "auxil/spicy/spicy",
+        "auxil/spicy",
         "auxil/zeek-af_packet-plugin",
         "auxil/zeek-archiver",
         "auxil/zeek-aux",
