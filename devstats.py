@@ -25,6 +25,31 @@ def msg(content):
     print(content, file=sys.stderr)
 
 
+class Table(texttable.Texttable):
+    """A specialization of text tables for our needs.
+
+    This always has the same header decoration, and the ability to default
+    column types and alignments unless the user overrides them.
+    """
+    def __init__(self, columns, dtypes=None, alignments=None):
+        super().__init__()
+        self.set_deco(self.HEADER)
+
+        # Default: first column is text, all others integer:
+        if dtypes is None:
+            dtypes = ["t"] + ["i"] * (len(columns)-1)
+        # Default: first column is left-aligned, all others right:
+        if alignments is None:
+            alignments = ["l"] + ["r"] * (len(columns)-1)
+
+        self.set_cols_dtype(dtypes)
+        self.set_cols_align(alignments)
+
+    def add_row_if(self, row, cond=True):
+        """Helper to only add a row if the provided condition is true."""
+        if cond:
+            self.add_row(row)
+
 class Config:
     # Repos in which we count releases
     RELEASE_REPOS = (
@@ -85,9 +110,8 @@ class Config:
         "ynadji",
     }
 
-    def __init__(self, rootdir, run, since=None, until=None):
+    def __init__(self, rootdir, since=None, until=None):
         self.rootdir = rootdir
-        self.run = run
         # These need to be datetimes, not dates, so we can compare smoothly to
         # datetimes involved in git operations.
         self.since = self._get_datetime(since)
@@ -107,33 +131,18 @@ class Config:
 
 
 class Analysis:
-    def __init__(self, cfg):
+    def __init__(self, cfg, run):
         self.cfg = cfg
+        self.run = run
         self.result = None
 
-    def run(self):
+    def crunch(self):
         """Conduct the analysis.
 
-        This populates object-local state, and does nothing else.
-        For reporting, see print().
+        This populates object-local state, and does nothing else.  For
+        reporting, see print(). This should store the various results in the
+        self.result member, usually as a dict.
         """
-        pass
-
-    def print(self, other_runs=[]):
-        """Prints the results of the analysis.
-
-        other_runs: Sometimes this report requires access to other analyses, for
-        example to summarize another quarter succinctly but still include it.
-        """
-        pass
-
-    def add_to_table(self, run, table):
-        """Adds the analysis resulting totals to the given table.
-
-        run: Sometimes the summary requires context from the run,
-        such as the timeframe of the analysis.
-        """
-        pass
 
     def _get_reponame(self, url, alternative=None):
         try:
@@ -151,7 +160,16 @@ class Analysis:
             scope.append(["--until", self.cfg.until.isoformat()])
         return args + scope
 
-    def _print_table(self, table, title):
+    @staticmethod
+    def print(analyses):
+        """Prints the results of the analysis.
+
+        analyses: a list of Analyses to summarize.
+        """
+
+    @staticmethod
+    def print_table(table, title):
+        """Helper to print out the given Table instance and title."""
         tstring = table.draw()
         maxlen = max([len(row) for row in tstring.splitlines()])
 
@@ -163,7 +181,7 @@ class Analysis:
 class CommitsAnalysis(Analysis):
     NAME = "commits"
 
-    def run(self):
+    def crunch(self):
         res = OrderedDict()
 
         for repopath in self.cfg.COMMIT_REPOS:
@@ -181,41 +199,30 @@ class CommitsAnalysis(Analysis):
 
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["repo", "commits"])
-        table.set_cols_dtype(["t", "i"])
-        table.set_cols_align(["l", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["repo", "commits"])
 
-        total = 0
+        def process(anl, detailed):
+            total = 0
 
-        for repo in sorted(self.result.keys()):
-            commits = self.result[repo]
-            total += commits
-            table.add_row([repo, commits])
+            for repo in sorted(anl.result.keys()):
+                commits = anl.result[repo]
+                total += commits
+                table.add_row_if([repo, commits], detailed)
 
-        table.add_row(["TOTAL", total])
+            table.add_row([f"TOTAL in {anl.run.timeframe()}", total])
 
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-        self._print_table(table, "Commits")
-
-    def add_to_table(self, run, table):
-        total = 0
-
-        for repo in sorted(self.result.keys()):
-            commits = self.result[repo]
-            total += commits
-
-        table.add_row([f"TOTAL in {run.timeframe()}", total])
+        Analysis.print_table(table, "Commits")
 
 
 class ReleaseAnalysis(Analysis):
     NAME = "releases"
 
-    def run(self):
+    def crunch(self):
         res = OrderedDict()
 
         for repopath in self.cfg.RELEASE_REPOS:
@@ -248,49 +255,36 @@ class ReleaseAnalysis(Analysis):
 
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["repo", "major", "total"])
-        table.set_cols_dtype(["t", "i", "i"])
-        table.set_cols_align(["l", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["repo", "major", "total"])
 
-        total = 0
-        major = 0
+        def process(anl, detailed):
+            total = 0
+            major = 0
 
-        for repo in sorted(self.result.keys()):
-            table.add_row([repo, "", ""])
-            for release in sorted(self.result[repo]):
-                if release.endswith(".0"):
-                    major += 1
-                    table.add_row([f"  {release}", "*", "*"])
-                else:
-                    table.add_row([f"  {release}", ".", "*"])
-                total += 1
+            for repo in sorted(anl.result.keys()):
+                table.add_row_if([repo, "", ""], detailed)
+                for release in sorted(anl.result[repo]):
+                    if release.endswith(".0"):
+                        major += 1
+                        table.add_row_if([f"  {release}", "*", "*"], detailed)
+                    else:
+                        table.add_row_if([f"  {release}", ".", "*"], detailed)
+                    total += 1
 
-        table.add_row(["TOTAL", major, total])
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([f"TOTAL in {anl.run.timeframe()}", major, total])
 
-        self._print_table(table, "Releases")
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-    def add_to_table(self, run, table):
-        total = 0
-        major = 0
-
-        for repo in sorted(self.result.keys()):
-            for release in sorted(self.result[repo]):
-                if release.endswith(".0"):
-                    major += 1
-                total += 1
-
-        table.add_row([f"TOTAL in {run.timeframe()}", major, total])
+        Analysis.print_table(table, "Releases")
 
 
 class MergeAnalysis(Analysis):
     NAME = "merges"
 
-    def run(self):
+    def crunch(self):
         res = OrderedDict()
 
         for repopath in self.cfg.COMMIT_REPOS:
@@ -314,46 +308,33 @@ class MergeAnalysis(Analysis):
 
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["repo", "security", "total"])
-        table.set_cols_dtype(["t", "i", "i"])
-        table.set_cols_align(["l", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["repo", "security", "total"])
 
-        total = 0
-        total_sec = 0
+        def process(anl, detailed):
+            total = 0
+            total_sec = 0
 
-        for repo in sorted(self.result.keys()):
-            merges = self.result[repo]["total"]
-            security = self.result[repo]["security"]
-            total += merges
-            total_sec += security
-            table.add_row([repo, security, merges])
+            for repo in sorted(anl.result.keys()):
+                merges = anl.result[repo]["total"]
+                security = anl.result[repo]["security"]
+                total += merges
+                total_sec += security
+                table.add_row_if([repo, security, merges], detailed)
 
-        table.add_row(["TOTAL", total_sec, total])
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([f"TOTAL in {anl.run.timeframe()}", total_sec, total])
 
-        self._print_table(table, "Merges")
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-    def add_to_table(self, run, table):
-        total = 0
-        total_sec = 0
-
-        for repo in sorted(self.result.keys()):
-            merges = self.result[repo]["total"]
-            security = self.result[repo]["security"]
-            total += merges
-            total_sec += security
-
-        table.add_row([f"TOTAL in {run.timeframe()}", total_sec, total])
+        Analysis.print_table(table, "Merges")
 
 
 class PrAnalysis(Analysis):
     NAME = "prs"
 
-    def run(self):
+    def crunch(self):
         # This requires the "gh" tool, which is slow.
         res = OrderedDict()
 
@@ -411,63 +392,43 @@ class PrAnalysis(Analysis):
                                  "contribs": contribs}
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["repo", "comments", "cl_contribs", "contribs", "total"])
-        table.set_cols_dtype(["t", "i", "i", "i", "i"])
-        table.set_cols_align(["l", "r", "r", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["repo", "comments", "cl_contribs", "contribs", "total"])
 
-        total = 0
-        total_comments = 0
-        total_cl_contribs = 0
-        total_contribs = 0
+        def process(anl, default):
+            total = 0
+            total_comments = 0
+            total_cl_contribs = 0
+            total_contribs = 0
 
-        for repo in sorted(self.result.keys()):
-            prs = self.result[repo]["total"]
-            comments = self.result[repo]["comments"]
-            cl_contribs = self.result[repo]["cl_contribs"]
-            contribs = self.result[repo]["contribs"]
+            for repo in sorted(anl.result.keys()):
+                prs = anl.result[repo]["total"]
+                comments = anl.result[repo]["comments"]
+                cl_contribs = anl.result[repo]["cl_contribs"]
+                contribs = anl.result[repo]["contribs"]
 
-            total += prs
-            total_comments += comments
-            total_cl_contribs += cl_contribs
-            total_contribs += contribs
+                total += prs
+                total_comments += comments
+                total_cl_contribs += cl_contribs
+                total_contribs += contribs
 
-            table.add_row([repo, comments, cl_contribs, contribs, prs])
+                table.add_row_if([repo, comments, cl_contribs, contribs, prs], default)
 
-        table.add_row(["TOTAL", total_comments, total_cl_contribs, total_contribs, total])
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([f"TOTAL in {anl.run.timeframe()}",
+                           total_comments, total_cl_contribs,
+                           total_contribs, total])
 
-        self._print_table(table, "Pull Requests")
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-    def add_to_table(self, run, table):
-        total = 0
-        total_comments = 0
-        total_cl_contribs = 0
-        total_contribs = 0
-
-        for repo in sorted(self.result.keys()):
-            prs = self.result[repo]["total"]
-            comments = self.result[repo]["comments"]
-            cl_contribs = self.result[repo]["cl_contribs"]
-            contribs = self.result[repo]["contribs"]
-
-            total += prs
-            total_comments += comments
-            total_cl_contribs += cl_contribs
-            total_contribs += contribs
-
-        table.add_row([f"TOTAL in {run.timeframe()}",
-                       total_comments, total_cl_contribs,
-                       total_contribs, total])
+        Analysis.print_table(table, "Pull Requests")
 
 
 class IssueAnalysis(Analysis):
     NAME = "issues"
 
-    def run(self):
+    def crunch(self):
         # This requires the "gh" tool, which is slow.
         res = OrderedDict()
 
@@ -538,71 +499,47 @@ class IssueAnalysis(Analysis):
                                  "contribs": contribs}
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["repo", "opened", "closed", "cl_contribs", "contribs", "active"])
-        table.set_cols_dtype(["t", "i", "i", "i", "i", "i"])
-        table.set_cols_align(["l", "r", "r", "r", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["repo", "opened", "closed", "cl_contribs", "contribs", "active"])
 
-        total_active = 0
-        total_opened = 0
-        total_closed = 0
-        total_cl_contribs = 0
-        total_contribs = 0
+        def process(anl, detailed):
+            total_active = 0
+            total_opened = 0
+            total_closed = 0
+            total_cl_contribs = 0
+            total_contribs = 0
 
-        for repo in sorted(self.result.keys()):
-            active = self.result[repo]["active"]
-            opened = self.result[repo]["opened"]
-            closed = self.result[repo]["closed"]
-            cl_contribs = self.result[repo]["cl_contribs"]
-            contribs = self.result[repo]["contribs"]
+            for repo in sorted(anl.result.keys()):
+                active = anl.result[repo]["active"]
+                opened = anl.result[repo]["opened"]
+                closed = anl.result[repo]["closed"]
+                cl_contribs = anl.result[repo]["cl_contribs"]
+                contribs = anl.result[repo]["contribs"]
 
-            total_active += active
-            total_opened += opened
-            total_closed += closed
-            total_cl_contribs += cl_contribs
-            total_contribs += contribs
+                total_active += active
+                total_opened += opened
+                total_closed += closed
+                total_cl_contribs += cl_contribs
+                total_contribs += contribs
 
-            table.add_row([repo, opened, closed, cl_contribs, contribs, active])
+                table.add_row_if([repo, opened, closed, cl_contribs, contribs, active], detailed)
 
-        table.add_row(["TOTAL", total_opened, total_closed, total_cl_contribs,
-                       total_contribs, total_active])
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([f"TOTAL in {anl.run.timeframe()}",
+                           total_opened, total_closed, total_cl_contribs,
+                           total_contribs, total_active])
 
-        self._print_table(table, "Issues")
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-    def add_to_table(self, run, table):
-        total_active = 0
-        total_opened = 0
-        total_closed = 0
-        total_cl_contribs = 0
-        total_contribs = 0
-
-        for repo in sorted(self.result.keys()):
-            active = self.result[repo]["active"]
-            opened = self.result[repo]["opened"]
-            closed = self.result[repo]["closed"]
-            cl_contribs = self.result[repo]["cl_contribs"]
-            contribs = self.result[repo]["contribs"]
-
-            total_active += active
-            total_opened += opened
-            total_closed += closed
-            total_cl_contribs += cl_contribs
-            total_contribs += contribs
-
-        table.add_row([f"TOTAL in {run.timeframe()}",
-                       total_opened, total_closed, total_cl_contribs,
-                       total_contribs, total_active])
+        Analysis.print_table(table, "Issues")
 
 
 class PackagesAnalysis(Analysis):
     NAME = "packages"
     REPO_URL = "https://github.com/zeek/packages"
 
-    def run(self):
+    def crunch(self):
         res = OrderedDict()
 
         with tempfile.TemporaryDirectory() as dir:
@@ -637,29 +574,23 @@ class PackagesAnalysis(Analysis):
 
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["timeframe", "total", "cl_new", "community_new"])
-        table.set_cols_dtype(["t", "i", "i", "i"])
-        table.set_cols_align(["l", "r", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["timeframe", "total", "cl_new", "community_new"])
 
-        self.add_to_table(self.cfg.run, table)
+        def process(anl):
+            new = anl.result["total_newest"] - anl.result["total_oldest"]
+            cl_new = anl.result["cl_newest"] - anl.result["cl_oldest"]
+            community_new = new - cl_new
 
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([anl.run.timeframe(),
+                           anl.result["total_newest"],
+                           cl_new, community_new])
 
-        self._print_table(table, "Packages")
+        for anl in analyses:
+            process(anl)
 
-    def add_to_table(self, run, table):
-        new = self.result["total_newest"] - self.result["total_oldest"]
-        cl_new = self.result["cl_newest"] - self.result["cl_oldest"]
-        community_new = new - cl_new
-
-        table.add_row([self.cfg.run.timeframe(),
-                       self.result["total_newest"],
-                       cl_new,
-                       community_new])
+        Analysis.print_table(table, "Packages")
 
 
 class DiscourseAnalysis(Analysis):
@@ -670,12 +601,12 @@ class DiscourseAnalysis(Analysis):
     # Our discourse server
     SERVER = "https://community.zeek.org"
 
-    def __init__(self, cfg):
-        super().__init__(cfg)
+    def __init__(self, cfg, run):
+        super().__init__(cfg, run)
         with open(self.API_KEY_FILE) as hdl:
             self.api_key = hdl.readline().strip()
 
-    def run(self):
+    def crunch(self):
         res = OrderedDict()
 
         for category in ["Zeek", "Development"]:
@@ -749,34 +680,24 @@ class DiscourseAnalysis(Analysis):
 
         self.result = res
 
-    def print(self, other_runs=[]):
-        table = texttable.Texttable()
-        table.set_deco(table.HEADER)
-        table.header(["category", "topics", "posts"])
-        table.set_cols_dtype(["t", "i", "i"])
-        table.set_cols_align(["l", "r", "r"])
+    @staticmethod
+    def print(analyses):
+        table = Table(["category", "topics", "posts"])
 
-        total_topics, total_posts = 0, 0
+        def process(anl, detailed):
+            total_topics, total_posts = 0, 0
 
-        for category, data in self.result.items():
-            table.add_row([category, data["topics"], data["posts"]])
-            total_topics += data["topics"]
-            total_posts += data["posts"]
+            for category, data in anl.result.items():
+                table.add_row_if([category, data["topics"], data["posts"]], detailed)
+                total_topics += data["topics"]
+                total_posts += data["posts"]
 
-        table.add_row(["TOTAL", total_topics, total_posts])
-        for run in other_runs:
-            run.analyses[self.NAME].add_to_table(run, table)
+            table.add_row([f"TOTAL in {anl.run.timeframe()}", total_topics, total_posts])
 
-        self._print_table(table, "Discourse Support")
+        for idx, anl in enumerate(analyses):
+            process(anl, idx == 0)
 
-    def add_to_table(self, run, table):
-        total_topics, total_posts = 0, 0
-
-        for category, data in self.result.items():
-            total_topics += data["topics"]
-            total_posts += data["posts"]
-
-        table.add_row([f"TOTAL in {run.timeframe()}", total_topics, total_posts])
+        Analysis.print_table(table, "Discourse Support")
 
 
 class Quarter:
@@ -808,7 +729,7 @@ class Quarter:
         self.enddate = datetime.date(lookupdate.year, 2, 1)
 
     def __repr__(self):
-        return f"{self.name()} {self.startdate.year}"
+        return f"{self.startdate.year}/{self.name()}"
 
     def name(self):
         return self.NAMES[self.startdate.month]
@@ -827,15 +748,15 @@ class Run:
         self.analyses = OrderedDict()
 
         if quarter is not None:
-            self.cfg = Config(args.zeekroot, self, str(quarter.startdate), str(quarter.enddate))
+            self.cfg = Config(args.zeekroot, str(quarter.startdate), str(quarter.enddate))
         else:
-            self.cfg = Config(args.zeekroot, self, args.since, args.until)
+            self.cfg = Config(args.zeekroot, args.since, args.until)
 
         for cls in Analysis.__subclasses__():
             if args.analysis and cls.NAME.lower() != args.analysis.lower():
                 continue
             try:
-                an = cls(self.cfg)
+                an = cls(self.cfg, self)
                 self.analyses[an.NAME] = an
             except Exception as err:
                 msg(f"Initialization error for {cls.__name__} ({err}), skipping")
@@ -844,7 +765,7 @@ class Run:
         for _, an in self.analyses.items():
             if self.args.verbose:
                 msg(f"Running {an.NAME} for {self.timeframe()}")
-            an.run()
+            an.crunch()
 
     def timeframe(self):
         if self.quarter is not None:
@@ -855,8 +776,27 @@ class Run:
 
 
 class Report:
+    """A report consists of one or more Run instnaces.
+
+    It can print a summary of these. It assumes that the first run is the most
+    important, and the others (if any) just provide additional context.
+    """
     def __init__(self, runs):
         self.runs = runs
+
+        # Take the analyses in each run and group them by their type (all merge
+        # analyses in a sequence, all issues analyses, etc), in the order
+        # implied by the given runs.
+        self.analyses = OrderedDict()
+        self.analyses_cls = {}
+
+        for run in self.runs:
+            for name, analysis in run.analyses.items():
+                try:
+                    self.analyses[name].append(analysis)
+                except KeyError:
+                    self.analyses[name] = [analysis]
+                    self.analyses_cls[name] = analysis.__class__
 
     def print(self):
         print("ZEEK ACTIVITY REPORT")
@@ -865,9 +805,8 @@ class Report:
         print(self.runs[0].timeframe())
         print()
 
-        for _, an in self.runs[0].analyses.items():
-            if an.result is not None:
-                an.print(self.runs[1:])
+        for name in self.analyses:
+            self.analyses_cls[name].print(self.analyses[name])
             print()
 
 
