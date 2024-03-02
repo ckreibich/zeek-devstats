@@ -396,7 +396,7 @@ class PrAnalysis(Analysis):
     def print(analyses):
         table = Table(["repo", "comments", "cl_contribs", "contribs", "total"])
 
-        def process(anl, default):
+        def process(anl, detailed):
             total = 0
             total_comments = 0
             total_cl_contribs = 0
@@ -413,7 +413,7 @@ class PrAnalysis(Analysis):
                 total_cl_contribs += cl_contribs
                 total_contribs += contribs
 
-                table.add_row_if([repo, comments, cl_contribs, contribs, prs], default)
+                table.add_row_if([repo, comments, cl_contribs, contribs, prs], detailed)
 
             table.add_row([f"TOTAL in {anl.run.timeframe()}",
                            total_comments, total_cl_contribs,
