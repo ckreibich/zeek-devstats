@@ -489,6 +489,10 @@ class IssueAnalysis(Analysis):
                                       "--json", "number,author,createdAt,closedAt"],
                                      capture_output=True)
 
+                # There may not have been any activity.
+                if not ret.stdout.strip():
+                    continue
+
                 try:
                     issdata = json.loads(ret.stdout)
                 except json.decoder.JSONDecodeError as err:
