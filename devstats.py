@@ -105,20 +105,32 @@ class Config:
 
 
 class Analysis:
-    REPORT_WIDTH = 50
-    REPO_WIDTH = 30
-
     def __init__(self, cfg):
         self.cfg = cfg
         self.result = None
 
     def run(self):
+        """Conduct the analysis.
+
+        This populates object-local state, and does nothing else.
+        For reporting, see print().
+        """
         pass
 
     def print(self, other_runs=[]):
+        """Prints the results of the analysis.
+
+        other_runs: Sometimes this report requires access to other analyses, for
+        example to summarize another quarter succinctly but still include it.
+        """
         pass
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
+        """Adds the analysis resulting totals to the given table.
+
+        run: Sometimes the summary requires context from the run,
+        such as the timeframe of the analysis.
+        """
         pass
 
     def _get_reponame(self, url, alternative=None):
@@ -182,12 +194,13 @@ class CommitsAnalysis(Analysis):
             table.add_row([repo, commits])
 
         table.add_row(["TOTAL", total])
+
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Commits")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total = 0
 
         for repo in sorted(self.result.keys()):
@@ -255,11 +268,11 @@ class ReleaseAnalysis(Analysis):
 
         table.add_row(["TOTAL", major, total])
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Releases")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total = 0
         major = 0
 
@@ -318,11 +331,11 @@ class MergeAnalysis(Analysis):
 
         table.add_row(["TOTAL", total_sec, total])
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Merges")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total = 0
         total_sec = 0
 
@@ -423,11 +436,11 @@ class PrAnalysis(Analysis):
 
         table.add_row(["TOTAL", total_comments, total_cl_contribs, total_contribs, total])
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Pull Requests")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total = 0
         total_comments = 0
         total_cl_contribs = 0
@@ -550,11 +563,11 @@ class IssueAnalysis(Analysis):
         table.add_row(["TOTAL", total_opened, total_closed, total_cl_contribs,
                        total_contribs, total_active])
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Issues")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total_active = 0
         total_opened = 0
         total_closed = 0
@@ -682,11 +695,11 @@ class DiscourseAnalysis(Analysis):
 
         table.add_row(["TOTAL", total_topics, total_posts])
         for run in other_runs:
-            run.analyses[self.NAME].add_totals_to_table(run, table)
+            run.analyses[self.NAME].add_to_table(run, table)
 
         self._print_table(table, "Discourse Support")
 
-    def add_totals_to_table(self, run, table):
+    def add_to_table(self, run, table):
         total_topics, total_posts = 0, 0
 
         for category, data in self.result.items():
