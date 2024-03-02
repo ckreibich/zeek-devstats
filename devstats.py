@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 import argparse
+import configparser
 import contextlib
 import datetime
 import json
@@ -9,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.parse
@@ -594,6 +596,70 @@ class IssueAnalysis(Analysis):
         table.add_row([f"TOTAL in {run.timeframe()}",
                        total_opened, total_closed, total_cl_contribs,
                        total_contribs, total_active])
+
+
+class PackagesAnalysis(Analysis):
+    NAME = "packages"
+    REPO_URL = "https://github.com/zeek/packages"
+
+    def run(self):
+        res = OrderedDict()
+
+        with tempfile.TemporaryDirectory() as dir:
+            repo = git.Repo.clone_from(self.REPO_URL, dir)
+
+            args = self._build_git_args(["--pretty=format:%H"])
+            commits = repo.git.log(*args).splitlines()
+            newest_hash = commits[0]
+            oldest_hash = commits[-1]
+
+            # Read aggregate.meta at the earliest and latest commit; the number
+            # of sections in it is the number of packages.
+            repo.git.checkout(oldest_hash)
+            meta = configparser.ConfigParser()
+            meta.read(os.path.join(dir, "aggregate.meta"))
+            res["total_oldest"] = len(meta.sections())
+            res["cl_oldest"] = 0
+
+            for package in meta.sections():
+                if package.startswith('corelight/'):
+                    res["cl_oldest"] += 1
+
+            repo.git.checkout(newest_hash)
+            meta = configparser.ConfigParser()
+            meta.read(os.path.join(dir, "aggregate.meta"))
+            res["total_newest"] = len(meta.sections())
+            res["cl_newest"] = 0
+
+            for package in meta.sections():
+                if package.startswith('corelight/'):
+                    res["cl_newest"] += 1
+
+        self.result = res
+
+    def print(self, other_runs=[]):
+        table = texttable.Texttable()
+        table.set_deco(table.HEADER)
+        table.header(["timeframe", "total", "cl_new", "community_new"])
+        table.set_cols_dtype(["t", "i", "i", "i"])
+        table.set_cols_align(["l", "r", "r", "r"])
+
+        self.add_to_table(self.cfg.run, table)
+
+        for run in other_runs:
+            run.analyses[self.NAME].add_to_table(run, table)
+
+        self._print_table(table, "Packages")
+
+    def add_to_table(self, run, table):
+        new = self.result["total_newest"] - self.result["total_oldest"]
+        cl_new = self.result["cl_newest"] - self.result["cl_oldest"]
+        community_new = new - cl_new
+
+        table.add_row([self.cfg.run.timeframe(),
+                       self.result["total_newest"],
+                       cl_new,
+                       community_new])
 
 
 class DiscourseAnalysis(Analysis):
