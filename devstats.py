@@ -83,8 +83,9 @@ class Config:
         "ynadji",
     }
 
-    def __init__(self, rootdir, since=None, until=None):
+    def __init__(self, rootdir, run, since=None, until=None):
         self.rootdir = rootdir
+        self.run = run
         # These need to be datetimes, not dates, so we can compare smoothly to
         # datetimes involved in git operations.
         self.since = self._get_datetime(since)
@@ -743,9 +744,9 @@ class Run:
         self.analyses = OrderedDict()
 
         if quarter is not None:
-            self.cfg = Config(args.zeekroot, str(quarter.startdate), str(quarter.enddate))
+            self.cfg = Config(args.zeekroot, self, str(quarter.startdate), str(quarter.enddate))
         else:
-            self.cfg = Config(args.zeekroot, args.since, args.until)
+            self.cfg = Config(args.zeekroot, self, args.since, args.until)
 
         for cls in Analysis.__subclasses__():
             if args.analysis and cls.NAME.lower() != args.analysis.lower():
