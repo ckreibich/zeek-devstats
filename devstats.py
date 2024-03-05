@@ -335,12 +335,17 @@ class PrAnalysis(Analysis):
     NAME = "prs"
 
     def crunch(self):
-        # This requires the "gh" tool, which is slow.
         res = OrderedDict()
+        self.result = {}
 
+        # This requires the "gh" tool ... which is slow.
         if shutil.which("gh") is None:
-            self.result = {}
             return
+
+        # All PRs contributed by Corelighters other than the merge masters.
+        self.result["pr-contribs-cl"] = []
+        # All PRs contributed by any other community members.
+        self.result["pr-contribs"] = []
 
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.rootdir, repopath)
@@ -352,11 +357,12 @@ class PrAnalysis(Analysis):
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
 
             with contextlib.chdir(abs_repopath):
-                # Higher limits (like the original 1000) can lead to "transform: short source buffer" messages.
+                # Higher limits (like the original 1000) can lead to "transform:
+                # short source buffer" messages.
                 ret = subprocess.run(["gh", "pr", "list",
                                       "--state", "merged",
                                       "--limit", "500",
-                                      "--json", "number,author,mergedAt,comments"],
+                                      "--json", "url,number,author,mergedAt,comments,title"],
                                      capture_output=True)
 
                 try:
@@ -380,9 +386,23 @@ class PrAnalysis(Analysis):
 
                     if pr["author"]["login"].lower() not in self.cfg.MERGE_MASTERS:
                         if pr["author"]["login"].lower() in self.cfg.CORELIGHTERS:
+                            key = "pr-contribs-cl"
                             cl_contribs += 1
                         else:
+                            key = "pr-contribs"
                             contribs += 1
+
+                        prdata = {
+                            "author": pr["author"]["login"],
+                            "title": pr["title"],
+                            "url": pr["url"],
+                        }
+
+                        if "name" in pr["author"] and pr["author"]["name"].strip():
+                            prdata["author"] = f"{pr['author']['name']} ({pr['author']['login']})"
+
+                        self.result[key].append(prdata)
+
                     comments += len(pr["comments"])
                     total += 1
 
@@ -390,7 +410,7 @@ class PrAnalysis(Analysis):
                                  "comments": comments,
                                  "cl_contribs": cl_contribs,
                                  "contribs": contribs}
-        self.result = res
+        self.result["repos"] = res
 
     @staticmethod
     def print(analyses):
@@ -402,11 +422,13 @@ class PrAnalysis(Analysis):
             total_cl_contribs = 0
             total_contribs = 0
 
-            for repo in sorted(anl.result.keys()):
-                prs = anl.result[repo]["total"]
-                comments = anl.result[repo]["comments"]
-                cl_contribs = anl.result[repo]["cl_contribs"]
-                contribs = anl.result[repo]["contribs"]
+            res = anl.result["repos"]
+
+            for repo in sorted(res.keys()):
+                prs = res[repo]["total"]
+                comments = res[repo]["comments"]
+                cl_contribs = res[repo]["cl_contribs"]
+                contribs = res[repo]["contribs"]
 
                 total += prs
                 total_comments += comments
@@ -423,6 +445,21 @@ class PrAnalysis(Analysis):
             process(anl, idx == 0)
 
         Analysis.print_table(table, "Pull Requests")
+
+        # Print out contributed PRs in more detail, focusing on the
+        # first analysis (most recent quarter, etc):
+        anl = analyses[0]
+
+        for key, title in [["pr-contribs-cl", "Corelight"],
+                           ["pr-contribs", "Other"]]:
+            if not anl.result[key]:
+                continue
+            print()
+            print(f"{title} contributions:")
+            for prdata in anl.result[key]:
+                print("- Title:  " + prdata["title"])
+                print("  Author: " + prdata["author"])
+                print("  URL:    " + prdata["url"])
 
 
 class IssueAnalysis(Analysis):
