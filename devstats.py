@@ -34,6 +34,7 @@ class Table(texttable.Texttable):
     def __init__(self, columns, dtypes=None, alignments=None):
         super().__init__()
         self.set_deco(self.HEADER)
+        self.header(columns)
 
         # Default: first column is text, all others integer:
         if dtypes is None:
