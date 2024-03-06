@@ -452,11 +452,11 @@ class PrAnalysis(Analysis):
         anl = analyses[0]
 
         for key, title in [["pr-contribs-cl", "Corelight"],
-                           ["pr-contribs", "Other"]]:
+                           ["pr-contribs", "Community"]]:
             if not anl.result[key]:
                 continue
             print()
-            print(f"{title} contributions:")
+            print(f"{title} PR contributions in {anl.run.timeframe()}:")
             for prdata in anl.result[key]:
                 print("- Title:  " + prdata["title"])
                 print("  Author: " + prdata["author"])
@@ -578,7 +578,13 @@ class PackagesAnalysis(Analysis):
     REPO_URL = "https://github.com/zeek/packages"
 
     def crunch(self):
-        res = OrderedDict()
+        self.result = OrderedDict()
+        self.result["contribs"] = []
+        self.result["contribs-cl"] = []
+        self.result["contribs-zeek"] = []
+
+        old_packages = set()
+        new_packages = set()
 
         with tempfile.TemporaryDirectory() as dir:
             repo = git.Repo.clone_from(self.REPO_URL, dir)
@@ -593,42 +599,78 @@ class PackagesAnalysis(Analysis):
             repo.git.checkout(oldest_hash)
             meta = configparser.ConfigParser()
             meta.read(os.path.join(dir, "aggregate.meta"))
-            res["total_oldest"] = len(meta.sections())
-            res["cl_oldest"] = 0
+            self.result["total_oldest"] = len(meta.sections())
+            self.result["cl_oldest"] = 0
+            self.result["zeek_oldest"] = 0
 
             for package in meta.sections():
-                if package.startswith('corelight/'):
-                    res["cl_oldest"] += 1
+                old_packages.add(package)
+                if package.startswith("corelight/"):
+                    self.result["cl_oldest"] += 1
+                elif package.startswith("zeek/"):
+                    self.result["zeek_oldest"] += 1
 
             repo.git.checkout(newest_hash)
             meta = configparser.ConfigParser()
             meta.read(os.path.join(dir, "aggregate.meta"))
-            res["total_newest"] = len(meta.sections())
-            res["cl_newest"] = 0
+            self.result["total_newest"] = len(meta.sections())
+            self.result["cl_newest"] = 0
+            self.result["zeek_newest"] = 0
 
             for package in meta.sections():
+                new_packages.add(package)
                 if package.startswith('corelight/'):
-                    res["cl_newest"] += 1
+                    self.result["cl_newest"] += 1
+                elif package.startswith("zeek/"):
+                    self.result["zeek_newest"] += 1
 
-        self.result = res
+        delta_packages = new_packages - old_packages
+        for package in delta_packages:
+            pdata = {
+                "name": package,
+                "url": meta.get(package, "url"),
+            }
+
+            if package.startswith("corelight/"):
+                self.result["contribs-cl"].append(pdata)
+            elif package.startswith("zeek/"):
+                self.result["contribs-zeek"].append(pdata)
+            else:
+                self.result["contribs"].append(pdata)
+
 
     @staticmethod
     def print(analyses):
-        table = Table(["timeframe", "total", "cl_new", "community_new"])
+        table = Table(["timeframe", "total", "zeek_new", "cl_new", "community_new"])
 
         def process(anl):
             new = anl.result["total_newest"] - anl.result["total_oldest"]
             cl_new = anl.result["cl_newest"] - anl.result["cl_oldest"]
+            zeek_new = anl.result["zeek_newest"] - anl.result["zeek_oldest"]
             community_new = new - cl_new
 
             table.add_row([anl.run.timeframe(),
                            anl.result["total_newest"],
-                           cl_new, community_new])
+                           zeek_new, cl_new, community_new])
 
         for anl in analyses:
             process(anl)
 
         Analysis.print_table(table, "Packages")
+
+        # Print out contributed packages in more detail, focusing on the
+        # first analysis (most recent quarter, etc):
+        anl = analyses[0]
+
+        for key, title in [["contribs", "Community"],
+                           ["contribs-cl", "Corelight"],
+                           ["contribs-zeek", "Zeek"]]:
+            if not anl.result[key]:
+                continue
+            print()
+            print(f"{title} package contributions in {anl.run.timeframe()}:")
+            for pdata in anl.result[key]:
+                print(f"- {pdata['url']}")
 
 
 class DiscourseAnalysis(Analysis):
