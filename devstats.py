@@ -824,15 +824,11 @@ class Quarter:
 
 
 class Run:
-    def __init__(self, args, quarter=None):
+    def __init__(self, args, timeframe_desc=None):
         self.args = args
-        self.quarter = quarter
+        self.timeframe_desc = timeframe_desc or ""
         self.analyses = OrderedDict()
-
-        if quarter is not None:
-            self.cfg = Config(args.zeekroot, str(quarter.startdate), str(quarter.enddate))
-        else:
-            self.cfg = Config(args.zeekroot, args.since, args.until)
+        self.cfg = Config(args.zeekroot, args.since, args.until)
 
         for cls in Analysis.__subclasses__():
             if args.analysis and cls.NAME.lower() != args.analysis.lower():
@@ -850,8 +846,8 @@ class Run:
             an.crunch()
 
     def timeframe(self):
-        if self.quarter is not None:
-            return str(self.quarter)
+        if self.timeframe_desc:
+            return self.timeframe_desc
         if self.cfg.until is not None:
             return f"{self.cfg.since.date()} - {self.cfg.until.date()}"
         return f"{self.cfg.since.date()} - today"
@@ -892,6 +888,73 @@ class Report:
             print()
 
 
+def cmd_time(args):
+    if args.since is None:
+        msg("Need a start date.")
+        sys.exit(1)
+
+    try:
+        run = Run(args)
+    except ValueError as err:
+        msg("Configuration error: %s" % err)
+        sys.exit(1)
+
+    run.run()
+    return Report([run])
+
+def cmd_git(args):
+    if args.since is None:
+        msg("Need a start commit/tag.")
+        sys.exit(1)
+
+    # We translate the git commits/tags into dates and update the args object
+    # with the resulting dates.
+
+    repo = git.Repo(args.zeekroot)
+    since_date = repo.git.log("-1", "--format=%ai", args.since)
+
+    # This returned something like "2024-03-12 10:31:19 +0100".
+    # We just take the date part -- this is approximate:
+    since_date = since_date.split()[0]
+    until_date = None
+    desc = f"{args.since} ({since_date}) - today"
+
+    if args.until is not None:
+        until_date = repo.git.log("-1", "--format=%ai", args.until)
+        until_date = until_date.split()[0]
+        desc = f"{args.since} ({since_date}) - {args.until} ({until_date})"
+
+    args.since, args.until = since_date, until_date
+
+    try:
+        run = Run(args, timeframe_desc=desc)
+    except ValueError as err:
+        msg("Configuration error: %s" % err)
+        sys.exit(1)
+
+    run.run()
+    return Report([run])
+
+def cmd_quarters(args):
+    q1 = Quarter().previous()
+    q2 = q1.previous()
+    q3 = q2.previous()
+    runs = []
+
+    # The quarters go back in time:
+    for q in [q1, q2, q3]:
+        try:
+            args.since, args.until = str(q.startdate), str(q.enddate)
+            run = Run(args, timeframe_desc=str(q))
+        except ValueError as err:
+            msg("Configuration error, skipping: %s" % err)
+            continue
+        run.run()
+        runs.append(run)
+
+    return Report(runs)
+
+
 def main():
     analysis_names = [cls.NAME for cls in Analysis.__subclasses__()]
 
@@ -900,15 +963,34 @@ def main():
     parser.add_argument("--verbose", action="store_true",
                         help="Verbose output to stderr during calculations",
                         default=False)
-    parser.add_argument("--since", metavar="DATE",
-                        help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
-    parser.add_argument("--until", metavar="DATE",
-                        help="End of analysis in ISO format, e.g. YYYY-MM-DD")
     parser.add_argument("--analysis", metavar="NAME",
                         help=f"Run only one analysis: {', '.join(analysis_names)}")
     parser.add_argument("--zeekroot", metavar="PATH",
                         help="Toplevel of local Zeek source git clone",
                         default=".")
+
+    # We support three modes via subparsers:
+    # - "time": start (and optionally end) dates in YYYY-MM-DD format.
+    # - "git": start (and optionally end) commits or tags, implying time
+    # - "quarters": the past three (complete) financial quarters.
+    subs = parser.add_subparsers(help="available modes to focus analysis in time")
+
+    subp = subs.add_parser("time", help="time interval")
+    subp.add_argument("--since", metavar="DATE",
+                      help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
+    subp.add_argument("--until", metavar="DATE",
+                      help="Optional end of analysis in ISO format, e.g. YYYY-MM-DD")
+    subp.set_defaults(run_cmd=cmd_time)
+
+    subp = subs.add_parser("git", help="time based on git commits")
+    subp.add_argument("--since", metavar="COMMIT",
+                      help="Commit hash or tag to take as start date")
+    subp.add_argument("--until", metavar="COMMIT",
+                      help="Optional commit hash or tag to take as end date")
+    subp.set_defaults(run_cmd=cmd_git)
+
+    subp = subs.add_parser("quarters", help="past three financial quarters")
+    subp.set_defaults(run_cmd=cmd_quarters)
 
     args = parser.parse_args()
 
@@ -916,40 +998,12 @@ def main():
         msg("Please provide local Zeek clone directory via --zeekroot.")
         return 1
 
-    # Without explicit start/end dates, we compare the past 3 quarters.
-    if args.since is None and args.until is None:
-        q1 = Quarter().previous()
-        q2 = q1.previous()
-        q3 = q2.previous()
-        runs = []
+    if "run_cmd" not in args:
+        parser.print_help()
+        sys.exit(1)
 
-        # The quarters go back in time:
-        for q in [q1, q2, q3]:
-            try:
-                run = Run(args, quarter=q)
-            except ValueError as err:
-                msg("Configuration error, skipping: %s" % err)
-                continue
-            run.run()
-            runs.append(run)
-
-        report = Report(runs)
-        report.print()
-    else:
-        if args.since is None:
-            msg("Need a start date.")
-            return 1
-
-        try:
-            run = Run(args)
-        except ValueError as err:
-            msg("Configuration error: %s" % err)
-            return 1
-
-        run.run()
-
-        report = Report([run])
-        report.print()
+    report = args.run_cmd(args)
+    report.print()
 
     return 0
 
