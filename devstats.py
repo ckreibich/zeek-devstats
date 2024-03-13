@@ -111,8 +111,8 @@ class Config:
         "ynadji",
     }
 
-    def __init__(self, rootdir, since=None, until=None):
-        self.rootdir = rootdir
+    def __init__(self, zeekroot, since=None, until=None):
+        self.zeekroot = zeekroot
         # These need to be datetimes, not dates, so we can compare smoothly to
         # datetimes involved in git operations.
         self.since = self._get_datetime(since)
@@ -186,7 +186,7 @@ class CommitsAnalysis(Analysis):
         res = OrderedDict()
 
         for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.rootdir, repopath)
+            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -227,7 +227,7 @@ class ReleaseAnalysis(Analysis):
         res = OrderedDict()
 
         for repopath in self.cfg.RELEASE_REPOS:
-            abs_repopath = os.path.join(self.cfg.rootdir, repopath)
+            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -289,7 +289,7 @@ class MergeAnalysis(Analysis):
         res = OrderedDict()
 
         for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.rootdir, repopath)
+            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -349,7 +349,7 @@ class PrAnalysis(Analysis):
         self.result["pr-contribs"] = []
 
         for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.rootdir, repopath)
+            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -475,7 +475,7 @@ class IssueAnalysis(Analysis):
             return
 
         for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.rootdir, repopath)
+            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
