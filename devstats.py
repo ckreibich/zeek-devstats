@@ -792,24 +792,26 @@ class Quarter:
         if lookupdate is None:
             lookupdate = datetime.date.today()
 
+        one_day = datetime.timedelta(days=1)
+
         for month in self.START_MONTHS:
             if month > lookupdate.month:
                 continue
             self.startdate = datetime.date(lookupdate.year, month, 1)
             if month + self.LENGTH_MONTHS > 12:
                 self.enddate = datetime.date(
-                    lookupdate.year + 1, (month + self.LENGTH_MONTHS) % 12, 1)
+                    lookupdate.year + 1, (month + self.LENGTH_MONTHS) % 12, 1) - one_day
             else:
                 self.enddate = datetime.date(
-                    lookupdate.year, (month + self.LENGTH_MONTHS) % 12, 1)
+                    lookupdate.year, (month + self.LENGTH_MONTHS) % 12, 1) - one_day
             return
 
         # If we get here it's January, so the quarter started in the year prior.
         self.startdate = datetime.date(lookupdate.year-1, 11, 1)
-        self.enddate = datetime.date(lookupdate.year, 2, 1)
+        self.enddate = datetime.date(lookupdate.year, 2, 1) - one_day
 
     def __repr__(self):
-        return f"{self.startdate.year}/{self.name()}"
+        return f"{self.name()}-{self.startdate.year} ({self.startdate} - {self.enddate})"
 
     def name(self):
         return self.NAMES[self.startdate.month]
