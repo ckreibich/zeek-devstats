@@ -99,10 +99,12 @@ class Config:
         "ajs1k",
         "benjeems",
         "ekoyle",
+        "J-Gras",
         "JustinAzoff",
         "markoverholser",
         "keithjjones",
         "pauldokas",
+        "pbcullen",
         "retr0h",
         "sethhall",
         "stevesmoot",
@@ -385,8 +387,8 @@ class PrAnalysis(Analysis):
                     if self.cfg.since and merge_date < self.cfg.since:
                         break # too old -- as will be all others
 
-                    if pr["author"]["login"].lower() not in self.cfg.MERGE_MASTERS:
-                        if pr["author"]["login"].lower() in self.cfg.CORELIGHTERS:
+                    if pr["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
+                        if pr["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
                             key = "pr-contribs-cl"
                             cl_contribs += 1
                         else:
@@ -518,8 +520,8 @@ class IssueAnalysis(Analysis):
                             active += 1
                         if self.cfg.since and open_date > self.cfg.since:
                             opened += 1
-                            if iss["author"]["login"].lower() not in self.cfg.MERGE_MASTERS:
-                                if iss["author"]["login"].lower() in self.cfg.CORELIGHTERS:
+                            if iss["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
+                                if iss["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
                                     cl_contribs += 1
                                 else:
                                     contribs += 1
