@@ -32,7 +32,7 @@ class Table(texttable.Texttable):
     column types and alignments unless the user overrides them.
     """
     def __init__(self, columns, dtypes=None, alignments=None):
-        super().__init__()
+        super().__init__(max_width=0)
         self.set_deco(self.HEADER)
         self.header(columns)
 
@@ -116,9 +116,11 @@ class Config:
     def __init__(self, zeekroot, since=None, until=None):
         self.zeekroot = zeekroot
         # These need to be datetimes, not dates, so we can compare smoothly to
-        # datetimes involved in git operations.
+        # datetimes involved in git operations. The until-time adds another day
+        # since we mean it inclusively -- so Jan 1 to Jan 31 includes Jan 31,
+        # for example.
         self.since = self._get_datetime(since)
-        self.until = self._get_datetime(until)
+        self.until = self._get_datetime(until) + datetime.timedelta(days=1)
 
     def _get_datetime(self, date):
         if date is None:
@@ -345,10 +347,10 @@ class PrAnalysis(Analysis):
         if shutil.which("gh") is None:
             return
 
-        # All PRs contributed by Corelighters other than the merge masters.
+        # All PRs contributed by Corelighters (other than the merge masters).
         self.result["pr-contribs-cl"] = []
         # All PRs contributed by any other community members.
-        self.result["pr-contribs"] = []
+        self.result["pr-contribs-cty"] = []
 
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
@@ -392,7 +394,7 @@ class PrAnalysis(Analysis):
                             key = "pr-contribs-cl"
                             cl_contribs += 1
                         else:
-                            key = "pr-contribs"
+                            key = "pr-contribs-cty"
                             contribs += 1
 
                         prdata = {
@@ -417,28 +419,28 @@ class PrAnalysis(Analysis):
 
     @staticmethod
     def print(analyses):
-        table = Table(["repo", "comments", "cl_contribs", "contribs", "total"])
+        table = Table(["repo", "by Corelight", "by community", "total", "comments"])
 
         def process(anl, detailed):
             total = 0
-            total_comments = 0
             total_cl_contribs = 0
             total_contribs = 0
+            total_comments = 0
 
             res = anl.result["repos"]
 
             for repo in sorted(res.keys()):
                 prs = res[repo]["total"]
-                comments = res[repo]["comments"]
                 cl_contribs = res[repo]["cl_contribs"]
                 contribs = res[repo]["contribs"]
+                comments = res[repo]["comments"]
 
                 total += prs
-                total_comments += comments
                 total_cl_contribs += cl_contribs
                 total_contribs += contribs
+                total_comments += comments
 
-                table.add_row_if([repo, comments, cl_contribs, contribs, prs], detailed)
+                table.add_row_if([repo, cl_contribs, contribs, prs, comments], detailed)
 
             table.add_row([f"TOTAL in {anl.run.timeframe()}",
                            total_comments, total_cl_contribs,
@@ -447,14 +449,14 @@ class PrAnalysis(Analysis):
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
 
-        Analysis.print_table(table, "Pull Requests")
+        Analysis.print_table(table, "Merged Pull Requests")
 
         # Print out contributed PRs in more detail, focusing on the
         # first analysis (most recent quarter, etc):
         anl = analyses[0]
 
         for key, title in [["pr-contribs-cl", "Corelight"],
-                           ["pr-contribs", "Community"]]:
+                           ["pr-contribs-cty", "Community"]]:
             if not anl.result[key]:
                 continue
             print()
@@ -485,10 +487,20 @@ class IssueAnalysis(Analysis):
             repo = git.Repo(abs_repopath)
             reponame = self._get_reponame(repo.remotes.origin.url, repopath)
 
+            # For issues, we want to pull up any ever created because we want to
+            # count any that are still pending (unresolved) -- technically, we
+            # want to make sure we have included the earliest one that is still
+            # opned. gh does not let us say "all", so we need a large limit,
+            # that we specify here. We check below whether the number of
+            # returned ones hits that limit -- an indication that there are more
+            # to cover still, and the limit probably needs upping. If we used
+            # the API directly, we'd handle this via pagination-to-the-end.
+            limit = 2000
+
             with contextlib.chdir(abs_repopath):
                 ret = subprocess.run(["gh", "issue", "list",
                                       "--state", "all",
-                                      "--limit", "1000",
+                                      "--limit", str(limit),
                                       "--json", "number,author,createdAt,closedAt"],
                                      capture_output=True)
 
@@ -502,11 +514,14 @@ class IssueAnalysis(Analysis):
                     msg(f"JSON error decoding 'gh issue list' result in {repopath}: {err}")
                     continue
 
-                active = 0
+                pending = 0
                 opened = 0
+                opened_cl = 0
+                opened_cty = 0
                 closed = 0
-                cl_contribs = 0
-                contribs = 0
+
+                if len(issdata) == limit:
+                    msg(f"Warning: gh reported the requested limit of {limit} issues.")
 
                 for iss in issdata:
                     # gh reports issues in reverse chronological order of creation.
@@ -515,59 +530,59 @@ class IssueAnalysis(Analysis):
                     if iss["closedAt"] is not None:
                         close_date = datetime.datetime.fromisoformat(iss["closedAt"])
 
-                    if self.cfg.until and open_date <= self.cfg.until:
-                        if close_date is None:
-                            active += 1
-                        if self.cfg.since and open_date > self.cfg.since:
+                    if self.cfg.until and open_date < self.cfg.until:
+                        if close_date is None or close_date >= self.cfg.until:
+                            pending += 1
+                        if self.cfg.since and open_date >= self.cfg.since:
                             opened += 1
                             if iss["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
                                 if iss["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
-                                    cl_contribs += 1
+                                    opened_cl += 1
                                 else:
-                                    contribs += 1
+                                    opened_cty += 1
 
                     if close_date is not None:
-                        if self.cfg.until and close_date > self.cfg.until:
+                        if self.cfg.until and close_date >= self.cfg.until:
                             continue
                         if self.cfg.since and close_date >= self.cfg.since:
                             closed += 1
 
-                res[reponame] = {"active": active,
+                res[reponame] = {"pending": pending,
                                  "opened": opened,
-                                 "closed": closed,
-                                 "cl_contribs": cl_contribs,
-                                 "contribs": contribs}
+                                 "opened_cl": opened_cl,
+                                 "opened_cty": opened_cty,
+                                 "closed": closed,}
         self.result = res
 
     @staticmethod
     def print(analyses):
-        table = Table(["repo", "opened", "closed", "cl_contribs", "contribs", "active"])
+        table = Table(["repo", "opened (total)", "opened (Corelight)", "opened (community)", "closed", "pending"])
 
         def process(anl, detailed):
-            total_active = 0
             total_opened = 0
+            total_opened_cl = 0
+            total_opened_cty = 0
             total_closed = 0
-            total_cl_contribs = 0
-            total_contribs = 0
+            total_pending = 0
 
             for repo in sorted(anl.result.keys()):
-                active = anl.result[repo]["active"]
                 opened = anl.result[repo]["opened"]
+                opened_cl = anl.result[repo]["opened_cl"]
+                opened_cty = anl.result[repo]["opened_cty"]
                 closed = anl.result[repo]["closed"]
-                cl_contribs = anl.result[repo]["cl_contribs"]
-                contribs = anl.result[repo]["contribs"]
+                pending = anl.result[repo]["pending"]
 
-                total_active += active
                 total_opened += opened
+                total_opened_cl += opened_cl
+                total_opened_cty += opened_cty
                 total_closed += closed
-                total_cl_contribs += cl_contribs
-                total_contribs += contribs
+                total_pending += pending
 
-                table.add_row_if([repo, opened, closed, cl_contribs, contribs, active], detailed)
+                table.add_row_if([repo, opened, opened_cl, opened_cty, closed, pending], detailed)
 
-            table.add_row([f"TOTAL in {anl.run.timeframe()}",
-                           total_opened, total_closed, total_cl_contribs,
-                           total_contribs, total_active])
+            table.add_row([f"TOTAL in {anl.run.timeframe()}", total_opened,
+                           total_opened_cl, total_opened_cty, total_closed,
+                           total_pending])
 
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
@@ -643,7 +658,7 @@ class PackagesAnalysis(Analysis):
 
     @staticmethod
     def print(analyses):
-        table = Table(["timeframe", "total", "zeek_new", "cl_new", "community_new"])
+        table = Table(["timeframe", "total", "by Zeek team", "by Corelight", "by community"])
 
         def process(anl):
             new = anl.result["total_newest"] - anl.result["total_oldest"]
@@ -981,7 +996,7 @@ def main():
     subp.add_argument("--since", metavar="DATE",
                       help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
     subp.add_argument("--until", metavar="DATE",
-                      help="Optional end of analysis in ISO format, e.g. YYYY-MM-DD")
+                      help="Optional end of analysis, inclusive, in ISO format, e.g. YYYY-MM-DD")
     subp.set_defaults(run_cmd=cmd_time)
 
     subp = subs.add_parser("git", help="time based on git commits")
