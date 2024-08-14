@@ -443,8 +443,7 @@ class PrAnalysis(Analysis):
                 table.add_row_if([repo, cl_contribs, contribs, prs, comments], detailed)
 
             table.add_row([f"TOTAL in {anl.run.timeframe()}",
-                           total_comments, total_cl_contribs,
-                           total_contribs, total])
+                           total_cl_contribs, total_contribs, total, total_comments])
 
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
