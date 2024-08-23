@@ -124,6 +124,17 @@ class Config:
         "ynadji",
     }
 
+    # The issue labels we consider indications of invalid content, not counting
+    # toward called-out contributions. We could apply this to PRs too, but it's
+    # currently too infrequent to matter there.
+    INVALID_LABELS = {
+        "invalid",
+        "invalid / nothing to do",
+        "support-issue",
+        "will not fix",
+        "wontfix",
+    }
+
     def __init__(self, zeekroot, since=None, until=None):
         self.zeekroot = zeekroot
         # These need to be datetimes, not dates, so we can compare smoothly to
@@ -483,10 +494,15 @@ class IssueAnalysis(Analysis):
     def crunch(self):
         # This requires the "gh" tool, which is slow.
         res = OrderedDict()
+        self.result = {}
 
         if shutil.which("gh") is None:
-            self.result = {}
             return
+
+        # All issues contributed by Corelighters (other than the merge masters).
+        self.result["issue-contribs-cl"] = []
+        # All issues contributed by any other community members.
+        self.result["issue-contribs-cty"] = []
 
         for repopath in self.cfg.COMMIT_REPOS:
             abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
@@ -511,7 +527,7 @@ class IssueAnalysis(Analysis):
                 ret = subprocess.run(["gh", "issue", "list",
                                       "--state", "all",
                                       "--limit", str(limit),
-                                      "--json", "number,author,createdAt,closedAt"],
+                                      "--json", "url,number,author,createdAt,closedAt,title,labels"],
                                      capture_output=True)
 
                 # There may not have been any activity.
@@ -546,10 +562,29 @@ class IssueAnalysis(Analysis):
                         if self.cfg.since and open_date >= self.cfg.since:
                             opened += 1
                             if iss["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
+
+                                issdata = {
+                                    "author": iss["author"]["login"],
+                                    "title": iss["title"],
+                                    "url": iss["url"],
+                                }
+
+                                if "name" in iss["author"] and iss["author"]["name"].strip():
+                                    issdata["author"] = f"{iss['author']['name']} ({iss['author']['login']})"
+
+                                # Skip issues that we labeled as invalid --
+                                # counting those as contributions would be a bit
+                                # much.
+                                valid_issue = self._is_valid_issue(iss)
+
                                 if iss["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
                                     opened_cl += 1
+                                    if valid_issue:
+                                        self.result["issue-contribs-cl"].append(issdata)
                                 else:
                                     opened_cty += 1
+                                    if valid_issue:
+                                        self.result["issue-contribs-cty"].append(issdata)
 
                     if close_date is not None:
                         if self.cfg.until and close_date >= self.cfg.until:
@@ -562,7 +597,13 @@ class IssueAnalysis(Analysis):
                                  "opened_cl": opened_cl,
                                  "opened_cty": opened_cty,
                                  "closed": closed,}
-        self.result = res
+        self.result["repos"] = res
+
+    def _is_valid_issue(self, iss):
+        for label in iss["labels"]:
+            if label["name"].lower() in self.cfg.INVALID_LABELS:
+                return False
+        return True
 
     @staticmethod
     def print(analyses):
@@ -575,12 +616,14 @@ class IssueAnalysis(Analysis):
             total_closed = 0
             total_pending = 0
 
-            for repo in sorted(anl.result.keys()):
-                opened = anl.result[repo]["opened"]
-                opened_cl = anl.result[repo]["opened_cl"]
-                opened_cty = anl.result[repo]["opened_cty"]
-                closed = anl.result[repo]["closed"]
-                pending = anl.result[repo]["pending"]
+            res = anl.result["repos"]
+
+            for repo in sorted(res.keys()):
+                opened = res[repo]["opened"]
+                opened_cl = res[repo]["opened_cl"]
+                opened_cty = res[repo]["opened_cty"]
+                closed = res[repo]["closed"]
+                pending = res[repo]["pending"]
 
                 total_opened += opened
                 total_opened_cl += opened_cl
@@ -598,6 +641,21 @@ class IssueAnalysis(Analysis):
             process(anl, idx == 0)
 
         Analysis.print_table(table, "Issues")
+
+        # Print out issues opened by community members in more detail,
+        # focusing on the first analysis (most recent quarter, etc):
+        anl = analyses[0]
+
+        for key, title in [["issue-contribs-cl", "Corelight"],
+                           ["issue-contribs-cty", "Community"]]:
+            if not anl.result[key]:
+                continue
+            print()
+            print(f"{title} issue contributions in {anl.run.timeframe()}:")
+            for issdata in anl.result[key]:
+                print("- Title:  " + issdata["title"])
+                print("  Author: " + issdata["author"])
+                print("  URL:    " + issdata["url"])
 
 
 class PackagesAnalysis(Analysis):
