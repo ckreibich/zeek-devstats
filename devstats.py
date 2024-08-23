@@ -1,4 +1,9 @@
 #! /usr/bin/env python
+
+# Optional support for argcomplete, see:
+# https://pypi.org/project/argcomplete/#global-completion
+# PYTHON_ARGCOMPLETE_OK
+
 import argparse
 import configparser
 import contextlib
@@ -20,6 +25,12 @@ from collections import OrderedDict
 import git
 import texttable
 
+try:
+    # Argcomplete provides command-line completion for users of argparse.
+    # We support it if available, but don't complain when it isn't.
+    import argcomplete
+except ImportError:
+    pass
 
 def msg(content):
     print(content, file=sys.stderr)
@@ -1007,6 +1018,9 @@ def main():
 
     subp = subs.add_parser("quarters", help="past three financial quarters")
     subp.set_defaults(run_cmd=cmd_quarters)
+
+    if "argcomplete" in sys.modules:
+        argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
 
