@@ -113,6 +113,7 @@ class Config:
         "J-Gras",
         "JustinAzoff",
         "markoverholser",
+        "MP-Corelight",
         "keithjjones",
         "pauldokas",
         "pbcullen",
