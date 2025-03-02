@@ -100,6 +100,7 @@ class Config:
         "awelzel",
         "bbannier",
         "ckreibich",
+        "evantypanski",
         "neverlord",
         "rsmmr",
         "timwoj",
