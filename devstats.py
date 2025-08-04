@@ -83,7 +83,6 @@ class Config:
         "auxil/rapidjson",
         "auxil/spicy",
         "auxil/zeek-af_packet-plugin",
-        "auxil/zeek-archiver",
         "auxil/zeek-aux",
         "auxil/zeek-client",
         "auxil/zeekctl",
