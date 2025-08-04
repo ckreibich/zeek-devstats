@@ -159,8 +159,7 @@ class Config:
 
 
 class Analysis:
-    def __init__(self, cfg, run):
-        self.cfg = cfg
+    def __init__(self, run):
         self.run = run
         self.result = None
 
@@ -182,10 +181,10 @@ class Analysis:
 
     def _build_git_args(self, args):
         scope = []
-        if self.cfg.since is not None:
-            scope.append(["--since", self.cfg.since.isoformat()])
-        if self.cfg.until is not None:
-            scope.append(["--until", self.cfg.until.isoformat()])
+        if self.run.cfg.since is not None:
+            scope.append(["--since", self.run.cfg.since.isoformat()])
+        if self.run.cfg.until is not None:
+            scope.append(["--until", self.run.cfg.until.isoformat()])
         return args + scope
 
     @staticmethod
@@ -212,8 +211,8 @@ class CommitsAnalysis(Analysis):
     def crunch(self):
         res = OrderedDict()
 
-        for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
+        for repopath in self.run.cfg.COMMIT_REPOS:
+            abs_repopath = os.path.join(self.run.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -253,8 +252,8 @@ class ReleaseAnalysis(Analysis):
     def crunch(self):
         res = OrderedDict()
 
-        for repopath in self.cfg.RELEASE_REPOS:
-            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
+        for repopath in self.run.cfg.RELEASE_REPOS:
+            abs_repopath = os.path.join(self.run.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -315,8 +314,8 @@ class MergeAnalysis(Analysis):
     def crunch(self):
         res = OrderedDict()
 
-        for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
+        for repopath in self.run.cfg.COMMIT_REPOS:
+            abs_repopath = os.path.join(self.run.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -375,8 +374,8 @@ class PrAnalysis(Analysis):
         # All PRs contributed by any other community members.
         self.result["pr-contribs-cty"] = []
 
-        for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
+        for repopath in self.run.cfg.COMMIT_REPOS:
+            abs_repopath = os.path.join(self.run.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -407,9 +406,9 @@ class PrAnalysis(Analysis):
                 for pr in prdata:
                     # gh reports PRs in reverse chronological order.
                     merge_date = datetime.datetime.fromisoformat(pr["mergedAt"])
-                    if self.cfg.until and merge_date > self.cfg.until:
+                    if self.run.cfg.until and merge_date > self.run.cfg.until:
                         continue # too new
-                    if self.cfg.since and merge_date < self.cfg.since:
+                    if self.run.cfg.since and merge_date < self.run.cfg.since:
                         break # too old -- as will be all others
 
                     if pr["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
@@ -505,8 +504,8 @@ class IssueAnalysis(Analysis):
         # All issues contributed by any other community members.
         self.result["issue-contribs-cty"] = []
 
-        for repopath in self.cfg.COMMIT_REPOS:
-            abs_repopath = os.path.join(self.cfg.zeekroot, repopath)
+        for repopath in self.run.cfg.COMMIT_REPOS:
+            abs_repopath = os.path.join(self.run.cfg.zeekroot, repopath)
             if not os.path.isdir(abs_repopath):
                 msg(f"Skipping {repopath}, not a directory")
                 continue
@@ -557,12 +556,12 @@ class IssueAnalysis(Analysis):
                     if iss["closedAt"] is not None:
                         close_date = datetime.datetime.fromisoformat(iss["closedAt"])
 
-                    if self.cfg.until and open_date < self.cfg.until:
-                        if close_date is None or close_date >= self.cfg.until:
+                    if self.run.cfg.until and open_date < self.run.cfg.until:
+                        if close_date is None or close_date >= self.run.cfg.until:
                             pending += 1
-                        if self.cfg.since and open_date >= self.cfg.since:
+                        if self.run.cfg.since and open_date >= self.run.cfg.since:
                             opened += 1
-                            if iss["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
+                            if iss["author"]["login"].lower() not in map(str.lower, self.run.cfg.MERGE_MASTERS):
 
                                 issdata = {
                                     "author": iss["author"]["login"],
@@ -578,7 +577,7 @@ class IssueAnalysis(Analysis):
                                 # much.
                                 valid_issue = self._is_valid_issue(iss)
 
-                                if iss["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
+                                if iss["author"]["login"].lower() in map(str.lower, self.run.cfg.CORELIGHTERS):
                                     opened_cl += 1
                                     if valid_issue:
                                         self.result["issue-contribs-cl"].append(issdata)
@@ -588,9 +587,9 @@ class IssueAnalysis(Analysis):
                                         self.result["issue-contribs-cty"].append(issdata)
 
                     if close_date is not None:
-                        if self.cfg.until and close_date >= self.cfg.until:
+                        if self.run.cfg.until and close_date >= self.run.cfg.until:
                             continue
-                        if self.cfg.since and close_date >= self.cfg.since:
+                        if self.run.cfg.since and close_date >= self.run.cfg.since:
                             closed += 1
 
                 res[reponame] = {"pending": pending,
@@ -602,7 +601,7 @@ class IssueAnalysis(Analysis):
 
     def _is_valid_issue(self, iss):
         for label in iss["labels"]:
-            if label["name"].lower() in self.cfg.INVALID_LABELS:
+            if label["name"].lower() in self.run.cfg.INVALID_LABELS:
                 return False
         return True
 
@@ -767,8 +766,8 @@ class DiscourseAnalysis(Analysis):
     # Our discourse server
     SERVER = "https://community.zeek.org"
 
-    def __init__(self, cfg, run):
-        super().__init__(cfg, run)
+    def __init__(self, run):
+        super().__init__(run)
         with open(self.API_KEY_FILE) as hdl:
             self.api_key = hdl.readline().strip()
 
@@ -778,10 +777,10 @@ class DiscourseAnalysis(Analysis):
         for category in ["Zeek", "Development"]:
             queryparts = ["%23" + category]
 
-            if self.cfg.since is not None:
-                queryparts.append(f"after:{self.cfg.since.date()}")
-            if self.cfg.until is not None:
-                queryparts.append(f"before:{self.cfg.until.date()}")
+            if self.run.cfg.since is not None:
+                queryparts.append(f"after:{self.run.cfg.since.date()}")
+            if self.run.cfg.until is not None:
+                queryparts.append(f"before:{self.run.cfg.until.date()}")
 
             querystring = "q=" + "+".join(queryparts)
 
@@ -920,7 +919,7 @@ class Run:
             if args.analysis and cls.NAME.lower() != args.analysis.lower():
                 continue
             try:
-                an = cls(self.cfg, self)
+                an = cls(self)
                 self.analyses[an.NAME] = an
             except Exception as err:
                 msg(f"Initialization error for {cls.__name__} ({err}), skipping")
