@@ -125,6 +125,11 @@ class Config:
         "ynadji",
     }
 
+    # User accounts we ignore for contribution tracking:
+    IGNORED_USERS = {
+        "app/dependabot",
+    }
+
     # The issue labels we consider indications of invalid content, not counting
     # toward called-out contributions. We could apply this to PRs too, but it's
     # currently too infrequent to matter there.
@@ -411,8 +416,8 @@ class PrAnalysis(Analysis):
                     if self.run.cfg.since and merge_date < self.run.cfg.since:
                         break # too old -- as will be all others
 
-                    if pr["author"]["login"].lower() not in map(str.lower, self.cfg.MERGE_MASTERS):
-                        if pr["author"]["login"].lower() in map(str.lower, self.cfg.CORELIGHTERS):
+                    if pr["author"]["login"].lower() not in map(str.lower, self.run.cfg.MERGE_MASTERS):
+                        if pr["author"]["login"].lower() in map(str.lower, self.run.cfg.CORELIGHTERS):
                             key = "pr-contribs-cl"
                             cl_contribs += 1
                         else:
@@ -420,13 +425,13 @@ class PrAnalysis(Analysis):
                             contribs += 1
 
                         prdata = {
-                            "author": pr["author"]["login"],
+                            "author_login": pr["author"]["login"],
                             "title": pr["title"],
                             "url": pr["url"],
                         }
 
                         if "name" in pr["author"] and pr["author"]["name"].strip():
-                            prdata["author"] = f"{pr['author']['name']} ({pr['author']['login']})"
+                            prdata["author_name"] = pr["author"]["name"]
 
                         self.result[key].append(prdata)
 
@@ -484,7 +489,7 @@ class PrAnalysis(Analysis):
             print(f"{title} PR contributions in {anl.run.timeframe()}:")
             for prdata in anl.result[key]:
                 print("- Title:  " + prdata["title"])
-                print("  Author: " + prdata["author"])
+                print("  Author: " + prdata["author_login"])
                 print("  URL:    " + prdata["url"])
 
 
@@ -564,13 +569,13 @@ class IssueAnalysis(Analysis):
                             if iss["author"]["login"].lower() not in map(str.lower, self.run.cfg.MERGE_MASTERS):
 
                                 issdata = {
-                                    "author": iss["author"]["login"],
+                                    "author_login": iss["author"]["login"],
                                     "title": iss["title"],
                                     "url": iss["url"],
                                 }
 
                                 if "name" in iss["author"] and iss["author"]["name"].strip():
-                                    issdata["author"] = f"{iss['author']['name']} ({iss['author']['login']})"
+                                    issdata["author_name"] = iss["author"]["name"]
 
                                 # Skip issues that we labeled as invalid --
                                 # counting those as contributions would be a bit
@@ -654,7 +659,7 @@ class IssueAnalysis(Analysis):
             print(f"{title} issue contributions in {anl.run.timeframe()}:")
             for issdata in anl.result[key]:
                 print("- Title:  " + issdata["title"])
-                print("  Author: " + issdata["author"])
+                print("  Author: " + issdata["author_login"])
                 print("  URL:    " + issdata["url"])
 
 
@@ -863,6 +868,89 @@ class DiscourseAnalysis(Analysis):
             process(anl, idx == 0)
 
         Analysis.print_table(table, "Discourse Support")
+
+
+class Contributor:
+    def __init__(self, name=None, login=None):
+        if name is None and login is None:
+            raise ValueError("Need a name or login")
+
+        self.name = name # Human name
+        self.login = login # Github (or other) login
+
+    def __hash__(self):
+        return hash(str(self.name) + str(self.login))
+
+    def __lt__(self, other):
+        rep = self.name
+        if rep is None:
+            rep = self.login
+
+        other_rep = other.name
+        if other_rep is None:
+            other_rep = other.login
+
+        return rep.lower() < other_rep.lower()
+
+    def __eq__(self, other):
+        return self.name == other.name and self.login == other.login
+
+    def __repr__(self):
+        if self.name is None:
+            return "@" + self.login
+        return f"{self.name} (@{self.login})"
+
+
+class ContributorBlurbAnalysis(Analysis):
+    NAME = "contribs"
+
+    def crunch(self):
+        contributors = set()
+
+        try:
+            an = self.run.analyses[PrAnalysis.NAME]
+            for contrib_group in ["pr-contribs-cl", "pr-contribs-cty"]:
+                for contrib in an.result[contrib_group]:
+                    name = contrib.get("author_name", None)
+                    login = contrib.get("author_login", None)
+                    try:
+                        contributors.add(Contributor(name, login))
+                    except ValueError:
+                        msg("Weird, got a contributor with neither name nor login")
+        except KeyError:
+            msg("PR analysis not available, not collecting PR contributors")
+
+        try:
+            an = self.run.analyses[IssueAnalysis.NAME]
+            for contrib_group in ["issue-contribs-cl", "issue-contribs-cty"]:
+                for contrib in an.result[contrib_group]:
+                    name = contrib.get("author_name", None)
+                    login = contrib.get("author_login", None)
+                    try:
+                        contributors.add(Contributor(name, login))
+                    except ValueError:
+                        msg("Weird, got a contributor with neither name nor login")
+        except KeyError:
+            msg("Issue analysis not available, not collecting issue contributors")
+
+        self.result = {"contributors": contributors}
+
+    @staticmethod
+    def print(analyses):
+        # Only report the first analysis. The contributor summary most likely
+        # isn't desirable for anything but single-analysis runs anyway.
+        anl = analyses[0]
+        contributors = []
+        for contrib in anl.result["contributors"]:
+            if contrib.login in anl.run.cfg.IGNORED_USERS:
+                continue
+            contributors.append(contrib)
+
+        contributors.sort()
+        out = [str(contrib) for contrib in contributors]
+
+        print(f"Contributors for {anl.run.timeframe()}:\n")
+        print("We'd like to thank " + ", ".join(out[:-1]) + " and " + out[-1] + " for their contributions to this release.")
 
 
 class Quarter:
