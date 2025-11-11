@@ -71,25 +71,25 @@ class Config:
 
     # Repos in which we count commits / PRs
     COMMIT_REPOS = (
-        "",
-        "auxil/bifcl",
-        "auxil/binpac",
+        "", # Zeek itself
+        # "auxil/bifcl",
+        # "auxil/binpac",
         "auxil/broker",
         "auxil/btest",
-        "auxil/gen-zam",
+        # "auxil/gen-zam",
         "auxil/netcontrol-connectors",
         "auxil/package-manager",
         "auxil/paraglob",
         "auxil/rapidjson",
         "auxil/spicy",
-        "auxil/zeek-af_packet-plugin",
+        # "auxil/zeek-af_packet-plugin",
         "auxil/zeek-aux",
         "auxil/zeek-client",
         "auxil/zeekctl",
         "auxil/zeekjs",
         "cmake",
-        "doc",
-        "src/3rdparty",
+        # "doc",
+        # "src/3rdparty",
     )
 
     # Authors we consider part of the Zeek team, per their Github ID.
