@@ -32,6 +32,7 @@ try:
 except ImportError:
     pass
 
+
 def msg(content):
     print(content, file=sys.stderr)
 
@@ -42,6 +43,7 @@ class Table(texttable.Texttable):
     This always has the same header decoration, and the ability to default
     column types and alignments unless the user overrides them.
     """
+
     def __init__(self, columns, dtypes=None, alignments=None):
         super().__init__(max_width=0)
         self.set_deco(self.HEADER)
@@ -49,10 +51,10 @@ class Table(texttable.Texttable):
 
         # Default: first column is text, all others integer:
         if dtypes is None:
-            dtypes = ["t"] + ["i"] * (len(columns)-1)
+            dtypes = ["t"] + ["i"] * (len(columns) - 1)
         # Default: first column is left-aligned, all others right:
         if alignments is None:
-            alignments = ["l"] + ["r"] * (len(columns)-1)
+            alignments = ["l"] + ["r"] * (len(columns) - 1)
 
         self.set_cols_dtype(dtypes)
         self.set_cols_align(alignments)
@@ -62,16 +64,14 @@ class Table(texttable.Texttable):
         if cond:
             self.add_row(row)
 
+
 class Config:
     # Repos in which we count releases
-    RELEASE_REPOS = (
-        "", # Zeek itself
-        "auxil/spicy"
-    )
+    RELEASE_REPOS = ("", "auxil/spicy")  # Zeek itself
 
     # Repos in which we count commits / PRs
     COMMIT_REPOS = (
-        "", # Zeek itself
+        "",  # Zeek itself
         # "auxil/bifcl",
         # "auxil/binpac",
         "auxil/broker",
@@ -157,8 +157,14 @@ class Config:
         dt = datetime.datetime.fromisoformat(date)
         if dt.tzinfo is None:
             dt = datetime.datetime(
-                dt.year, dt.month, dt.day, dt.hour,
-                dt.minute, dt.second, tzinfo=datetime.timezone.utc)
+                dt.year,
+                dt.month,
+                dt.day,
+                dt.hour,
+                dt.minute,
+                dt.second,
+                tzinfo=datetime.timezone.utc,
+            )
 
         return dt
 
@@ -265,8 +271,8 @@ class ReleaseAnalysis(Analysis):
 
             repo = git.Repo(abs_repopath)
             args = self._build_git_args(
-                ["--tags", "--simplify-by-decoration",
-                 "--oneline", "--pretty=%H %D"])
+                ["--tags", "--simplify-by-decoration", "--oneline", "--pretty=%H %D"]
+            )
             commits = repo.git.log(*args)
 
             version_re = re.compile(r"(v\d+\.\d+(\.\d+)?)(,|$)")
@@ -391,11 +397,20 @@ class PrAnalysis(Analysis):
             with contextlib.chdir(abs_repopath):
                 # Higher limits (like the original 1000) can lead to "transform:
                 # short source buffer" messages.
-                ret = subprocess.run(["gh", "pr", "list",
-                                      "--state", "merged",
-                                      "--limit", "500",
-                                      "--json", "url,number,author,mergedAt,comments,title"],
-                                     capture_output=True)
+                ret = subprocess.run(
+                    [
+                        "gh",
+                        "pr",
+                        "list",
+                        "--state",
+                        "merged",
+                        "--limit",
+                        "500",
+                        "--json",
+                        "url,number,author,mergedAt,comments,title",
+                    ],
+                    capture_output=True,
+                )
 
                 try:
                     prdata = json.loads(ret.stdout)
@@ -412,12 +427,16 @@ class PrAnalysis(Analysis):
                     # gh reports PRs in reverse chronological order.
                     merge_date = datetime.datetime.fromisoformat(pr["mergedAt"])
                     if self.run.cfg.until and merge_date > self.run.cfg.until:
-                        continue # too new
+                        continue  # too new
                     if self.run.cfg.since and merge_date < self.run.cfg.since:
-                        break # too old -- as will be all others
+                        break  # too old -- as will be all others
 
-                    if pr["author"]["login"].lower() not in map(str.lower, self.run.cfg.MERGE_MASTERS):
-                        if pr["author"]["login"].lower() in map(str.lower, self.run.cfg.CORELIGHTERS):
+                    if pr["author"]["login"].lower() not in map(
+                        str.lower, self.run.cfg.MERGE_MASTERS
+                    ):
+                        if pr["author"]["login"].lower() in map(
+                            str.lower, self.run.cfg.CORELIGHTERS
+                        ):
                             key = "pr-contribs-cl"
                             cl_contribs += 1
                         else:
@@ -438,10 +457,12 @@ class PrAnalysis(Analysis):
                     comments += len(pr["comments"])
                     total += 1
 
-                res[reponame] = {"total": total,
-                                 "comments": comments,
-                                 "cl_contribs": cl_contribs,
-                                 "contribs": contribs}
+                res[reponame] = {
+                    "total": total,
+                    "comments": comments,
+                    "cl_contribs": cl_contribs,
+                    "contribs": contribs,
+                }
         self.result["repos"] = res
 
     @staticmethod
@@ -469,8 +490,15 @@ class PrAnalysis(Analysis):
 
                 table.add_row_if([repo, cl_contribs, contribs, prs, comments], detailed)
 
-            table.add_row([f"TOTAL in {anl.run.timeframe()}",
-                           total_cl_contribs, total_contribs, total, total_comments])
+            table.add_row(
+                [
+                    f"TOTAL in {anl.run.timeframe()}",
+                    total_cl_contribs,
+                    total_contribs,
+                    total,
+                    total_comments,
+                ]
+            )
 
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
@@ -481,8 +509,10 @@ class PrAnalysis(Analysis):
         # first analysis (most recent quarter, etc):
         anl = analyses[0]
 
-        for key, title in [["pr-contribs-cl", "Corelight"],
-                           ["pr-contribs-cty", "Community"]]:
+        for key, title in [
+            ["pr-contribs-cl", "Corelight"],
+            ["pr-contribs-cty", "Community"],
+        ]:
             if not anl.result[key]:
                 continue
             print()
@@ -529,11 +559,20 @@ class IssueAnalysis(Analysis):
             limit = 2000
 
             with contextlib.chdir(abs_repopath):
-                ret = subprocess.run(["gh", "issue", "list",
-                                      "--state", "all",
-                                      "--limit", str(limit),
-                                      "--json", "url,number,author,createdAt,closedAt,title,labels"],
-                                     capture_output=True)
+                ret = subprocess.run(
+                    [
+                        "gh",
+                        "issue",
+                        "list",
+                        "--state",
+                        "all",
+                        "--limit",
+                        str(limit),
+                        "--json",
+                        "url,number,author,createdAt,closedAt,title,labels",
+                    ],
+                    capture_output=True,
+                )
 
                 # There may not have been any activity.
                 if not ret.stdout.strip():
@@ -542,7 +581,9 @@ class IssueAnalysis(Analysis):
                 try:
                     issdata = json.loads(ret.stdout)
                 except json.decoder.JSONDecodeError as err:
-                    msg(f"JSON error decoding 'gh issue list' result in {repopath}: {err}")
+                    msg(
+                        f"JSON error decoding 'gh issue list' result in {repopath}: {err}"
+                    )
                     continue
 
                 pending = 0
@@ -566,7 +607,9 @@ class IssueAnalysis(Analysis):
                             pending += 1
                         if self.run.cfg.since and open_date >= self.run.cfg.since:
                             opened += 1
-                            if iss["author"]["login"].lower() not in map(str.lower, self.run.cfg.MERGE_MASTERS):
+                            if iss["author"]["login"].lower() not in map(
+                                str.lower, self.run.cfg.MERGE_MASTERS
+                            ):
 
                                 issdata = {
                                     "author_login": iss["author"]["login"],
@@ -574,7 +617,10 @@ class IssueAnalysis(Analysis):
                                     "url": iss["url"],
                                 }
 
-                                if "name" in iss["author"] and iss["author"]["name"].strip():
+                                if (
+                                    "name" in iss["author"]
+                                    and iss["author"]["name"].strip()
+                                ):
                                     issdata["author_name"] = iss["author"]["name"]
 
                                 # Skip issues that we labeled as invalid --
@@ -582,14 +628,18 @@ class IssueAnalysis(Analysis):
                                 # much.
                                 valid_issue = self._is_valid_issue(iss)
 
-                                if iss["author"]["login"].lower() in map(str.lower, self.run.cfg.CORELIGHTERS):
+                                if iss["author"]["login"].lower() in map(
+                                    str.lower, self.run.cfg.CORELIGHTERS
+                                ):
                                     opened_cl += 1
                                     if valid_issue:
                                         self.result["issue-contribs-cl"].append(issdata)
                                 else:
                                     opened_cty += 1
                                     if valid_issue:
-                                        self.result["issue-contribs-cty"].append(issdata)
+                                        self.result["issue-contribs-cty"].append(
+                                            issdata
+                                        )
 
                     if close_date is not None:
                         if self.run.cfg.until and close_date >= self.run.cfg.until:
@@ -597,11 +647,13 @@ class IssueAnalysis(Analysis):
                         if self.run.cfg.since and close_date >= self.run.cfg.since:
                             closed += 1
 
-                res[reponame] = {"pending": pending,
-                                 "opened": opened,
-                                 "opened_cl": opened_cl,
-                                 "opened_cty": opened_cty,
-                                 "closed": closed,}
+                res[reponame] = {
+                    "pending": pending,
+                    "opened": opened,
+                    "opened_cl": opened_cl,
+                    "opened_cty": opened_cty,
+                    "closed": closed,
+                }
         self.result["repos"] = res
 
     def _is_valid_issue(self, iss):
@@ -612,7 +664,16 @@ class IssueAnalysis(Analysis):
 
     @staticmethod
     def print(analyses):
-        table = Table(["repo", "opened (total)", "opened (Corelight)", "opened (community)", "closed", "pending"])
+        table = Table(
+            [
+                "repo",
+                "opened (total)",
+                "opened (Corelight)",
+                "opened (community)",
+                "closed",
+                "pending",
+            ]
+        )
 
         def process(anl, detailed):
             total_opened = 0
@@ -636,11 +697,20 @@ class IssueAnalysis(Analysis):
                 total_closed += closed
                 total_pending += pending
 
-                table.add_row_if([repo, opened, opened_cl, opened_cty, closed, pending], detailed)
+                table.add_row_if(
+                    [repo, opened, opened_cl, opened_cty, closed, pending], detailed
+                )
 
-            table.add_row([f"TOTAL in {anl.run.timeframe()}", total_opened,
-                           total_opened_cl, total_opened_cty, total_closed,
-                           total_pending])
+            table.add_row(
+                [
+                    f"TOTAL in {anl.run.timeframe()}",
+                    total_opened,
+                    total_opened_cl,
+                    total_opened_cty,
+                    total_closed,
+                    total_pending,
+                ]
+            )
 
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
@@ -651,8 +721,10 @@ class IssueAnalysis(Analysis):
         # focusing on the first analysis (most recent quarter, etc):
         anl = analyses[0]
 
-        for key, title in [["issue-contribs-cl", "Corelight"],
-                           ["issue-contribs-cty", "Community"]]:
+        for key, title in [
+            ["issue-contribs-cl", "Corelight"],
+            ["issue-contribs-cty", "Community"],
+        ]:
             if not anl.result[key]:
                 continue
             print()
@@ -709,7 +781,7 @@ class PackagesAnalysis(Analysis):
 
             for package in meta.sections():
                 new_packages.add(package)
-                if package.startswith('corelight/'):
+                if package.startswith("corelight/"):
                     self.result["cl_newest"] += 1
                 elif package.startswith("zeek/"):
                     self.result["zeek_newest"] += 1
@@ -728,10 +800,11 @@ class PackagesAnalysis(Analysis):
             else:
                 self.result["contribs"].append(pdata)
 
-
     @staticmethod
     def print(analyses):
-        table = Table(["timeframe", "total", "by Zeek team", "by Corelight", "by community"])
+        table = Table(
+            ["timeframe", "total", "by Zeek team", "by Corelight", "by community"]
+        )
 
         def process(anl):
             new = anl.result["total_newest"] - anl.result["total_oldest"]
@@ -739,9 +812,15 @@ class PackagesAnalysis(Analysis):
             zeek_new = anl.result["zeek_newest"] - anl.result["zeek_oldest"]
             community_new = new - cl_new
 
-            table.add_row([anl.run.timeframe(),
-                           anl.result["total_newest"],
-                           zeek_new, cl_new, community_new])
+            table.add_row(
+                [
+                    anl.run.timeframe(),
+                    anl.result["total_newest"],
+                    zeek_new,
+                    cl_new,
+                    community_new,
+                ]
+            )
 
         for anl in analyses:
             process(anl)
@@ -752,9 +831,11 @@ class PackagesAnalysis(Analysis):
         # first analysis (most recent quarter, etc):
         anl = analyses[0]
 
-        for key, title in [["contribs", "Community"],
-                           ["contribs-cl", "Corelight"],
-                           ["contribs-zeek", "Zeek"]]:
+        for key, title in [
+            ["contribs", "Community"],
+            ["contribs-cl", "Corelight"],
+            ["contribs-zeek", "Zeek"],
+        ]:
             if not anl.result[key]:
                 continue
             print()
@@ -794,7 +875,8 @@ class DiscourseAnalysis(Analysis):
                 headers={
                     "Api-Key": self.api_key,
                     "Api-Username": "christian",
-                })
+                },
+            )
 
             with urllib.request.urlopen(req) as query:
                 if query.status != 200:
@@ -818,7 +900,8 @@ class DiscourseAnalysis(Analysis):
                     headers={
                         "Api-Key": self.api_key,
                         "Api-Username": "christian",
-                    })
+                    },
+                )
 
                 try:
                     with urllib.request.urlopen(req) as query:
@@ -862,7 +945,9 @@ class DiscourseAnalysis(Analysis):
                 total_topics += data["topics"]
                 total_posts += data["posts"]
 
-            table.add_row([f"TOTAL in {anl.run.timeframe()}", total_topics, total_posts])
+            table.add_row(
+                [f"TOTAL in {anl.run.timeframe()}", total_topics, total_posts]
+            )
 
         for idx, anl in enumerate(analyses):
             process(anl, idx == 0)
@@ -883,8 +968,8 @@ class Contributor:
         if name is None and login is None:
             raise ValueError("Need a name or login")
 
-        self.name = name # Human name
-        self.login = login # Github (or other) login
+        self.name = name  # Human name
+        self.login = login  # Github (or other) login
 
         # Our custom names override any, present or not:
         if self.login in Contributor.HALL_OF_FAMERS:
@@ -919,7 +1004,7 @@ class ContributorBlurbAnalysis(Analysis):
     # Suppressions that we don't list, specifically here in the contributor
     # analysis. (Config.IGNORED_USERS acts globally.)
     IGNORED_USERS = {
-        "vpax", # This treats Vern as an honorary merge master, effectively
+        "vpax",  # This treats Vern as an honorary merge master, effectively
     }
 
     def crunch(self):
@@ -960,7 +1045,10 @@ class ContributorBlurbAnalysis(Analysis):
         anl = analyses[0]
         contributors = []
         for contrib in anl.result["contributors"]:
-            if contrib.login in anl.run.cfg.IGNORED_USERS or contrib.login in ContributorBlurbAnalysis.IGNORED_USERS:
+            if (
+                contrib.login in anl.run.cfg.IGNORED_USERS
+                or contrib.login in ContributorBlurbAnalysis.IGNORED_USERS
+            ):
                 continue
             contributors.append(contrib)
 
@@ -968,11 +1056,17 @@ class ContributorBlurbAnalysis(Analysis):
         out = [str(contrib) for contrib in contributors]
 
         print(f"Contributors for {anl.run.timeframe()}:\n")
-        print("We'd like to thank " + ", ".join(out[:-1]) + " and " + out[-1] + " for their contributions to this release.")
+        print(
+            "We'd like to thank "
+            + ", ".join(out[:-1])
+            + " and "
+            + out[-1]
+            + " for their contributions to this release."
+        )
 
 
 class Quarter:
-    START_MONTHS = [11,8,5,2]
+    START_MONTHS = [11, 8, 5, 2]
     NAMES = {2: "Q1", 5: "Q2", 8: "Q3", 11: "Q4"}
     LENGTH_MONTHS = 3
 
@@ -990,19 +1084,27 @@ class Quarter:
                 continue
             self.startdate = datetime.date(lookupdate.year, month, 1)
             if month + self.LENGTH_MONTHS > 12:
-                self.enddate = datetime.date(
-                    lookupdate.year + 1, (month + self.LENGTH_MONTHS) % 12, 1) - one_day
+                self.enddate = (
+                    datetime.date(
+                        lookupdate.year + 1, (month + self.LENGTH_MONTHS) % 12, 1
+                    )
+                    - one_day
+                )
             else:
-                self.enddate = datetime.date(
-                    lookupdate.year, (month + self.LENGTH_MONTHS) % 12, 1) - one_day
+                self.enddate = (
+                    datetime.date(lookupdate.year, (month + self.LENGTH_MONTHS) % 12, 1)
+                    - one_day
+                )
             return
 
         # If we get here it's January, so the quarter started in the year prior.
-        self.startdate = datetime.date(lookupdate.year-1, 11, 1)
+        self.startdate = datetime.date(lookupdate.year - 1, 11, 1)
         self.enddate = datetime.date(lookupdate.year, 2, 1) - one_day
 
     def __repr__(self):
-        return f"{self.name()}-{self.startdate.year} ({self.startdate} - {self.enddate})"
+        return (
+            f"{self.name()}-{self.startdate.year} ({self.startdate} - {self.enddate})"
+        )
 
     def name(self):
         return self.NAMES[self.startdate.month]
@@ -1050,6 +1152,7 @@ class Report:
     It can print a summary of these. It assumes that the first run is the most
     important, and the others (if any) just provide additional context.
     """
+
     def __init__(self, runs):
         self.runs = runs
 
@@ -1093,6 +1196,7 @@ def cmd_time(args):
     run.run()
     return Report([run])
 
+
 def cmd_git(args):
     if args.since is None:
         msg("Need a start commit/tag.")
@@ -1126,6 +1230,7 @@ def cmd_git(args):
     run.run()
     return Report([run])
 
+
 def cmd_quarters(args):
     q1 = Quarter().previous()
     q2 = q1.previous()
@@ -1151,14 +1256,23 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--verbose", action="store_true",
-                        help="Verbose output to stderr during calculations",
-                        default=False)
-    parser.add_argument("--analysis", metavar="NAME",
-                        help=f"Run only one analysis: {', '.join(analysis_names)}")
-    parser.add_argument("--zeekroot", metavar="PATH",
-                        help="Toplevel of local Zeek source git clone",
-                        default=".")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Verbose output to stderr during calculations",
+        default=False,
+    )
+    parser.add_argument(
+        "--analysis",
+        metavar="NAME",
+        help=f"Run only one analysis: {', '.join(analysis_names)}",
+    )
+    parser.add_argument(
+        "--zeekroot",
+        metavar="PATH",
+        help="Toplevel of local Zeek source git clone",
+        default=".",
+    )
 
     # We support three modes via subparsers:
     # - "time": start (and optionally end) dates in YYYY-MM-DD format.
@@ -1167,17 +1281,27 @@ def main():
     subs = parser.add_subparsers(help="available modes to focus analysis in time")
 
     subp = subs.add_parser("time", help="time interval")
-    subp.add_argument("--since", metavar="DATE",
-                      help="Start of analysis in ISO format, e.g. YYYY-MM-DD")
-    subp.add_argument("--until", metavar="DATE",
-                      help="Optional end of analysis, inclusive, in ISO format, e.g. YYYY-MM-DD")
+    subp.add_argument(
+        "--since",
+        metavar="DATE",
+        help="Start of analysis in ISO format, e.g. YYYY-MM-DD",
+    )
+    subp.add_argument(
+        "--until",
+        metavar="DATE",
+        help="Optional end of analysis, inclusive, in ISO format, e.g. YYYY-MM-DD",
+    )
     subp.set_defaults(run_cmd=cmd_time)
 
     subp = subs.add_parser("git", help="time based on git commits")
-    subp.add_argument("--since", metavar="COMMIT",
-                      help="Commit hash or tag to take as start date")
-    subp.add_argument("--until", metavar="COMMIT",
-                      help="Optional commit hash or tag to take as end date")
+    subp.add_argument(
+        "--since", metavar="COMMIT", help="Commit hash or tag to take as start date"
+    )
+    subp.add_argument(
+        "--until",
+        metavar="COMMIT",
+        help="Optional commit hash or tag to take as end date",
+    )
     subp.set_defaults(run_cmd=cmd_git)
 
     subp = subs.add_parser("quarters", help="past three financial quarters")
@@ -1200,6 +1324,7 @@ def main():
     report.print()
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
