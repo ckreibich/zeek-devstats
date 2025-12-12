@@ -871,12 +871,24 @@ class DiscourseAnalysis(Analysis):
 
 
 class Contributor:
+    HALL_OF_FAMERS = {
+        "dopheide-esnet": "Mike Dopheide",
+        "markoverholser": "Mark Overholser",
+        "zrobinette12": "Zach Robinette",
+        "J-Gras": "Jan Grashöfer",
+        "ynadji": "Yacin Nadji",
+    }
+
     def __init__(self, name=None, login=None):
         if name is None and login is None:
             raise ValueError("Need a name or login")
 
         self.name = name # Human name
         self.login = login # Github (or other) login
+
+        # Our custom names override any, present or not:
+        if self.login in Contributor.HALL_OF_FAMERS:
+            self.name = Contributor.HALL_OF_FAMERS[self.login]
 
     def __hash__(self):
         return hash(str(self.name) + str(self.login))
@@ -903,6 +915,12 @@ class Contributor:
 
 class ContributorBlurbAnalysis(Analysis):
     NAME = "contribs"
+
+    # Suppressions that we don't list, specifically here in the contributor
+    # analysis. (Config.IGNORED_USERS acts globally.)
+    IGNORED_USERS = {
+        "vpax", # This treats Vern as an honorary merge master, effectively
+    }
 
     def crunch(self):
         contributors = set()
@@ -942,7 +960,7 @@ class ContributorBlurbAnalysis(Analysis):
         anl = analyses[0]
         contributors = []
         for contrib in anl.result["contributors"]:
-            if contrib.login in anl.run.cfg.IGNORED_USERS:
+            if contrib.login in anl.run.cfg.IGNORED_USERS or contrib.login in ContributorBlurbAnalysis.IGNORED_USERS:
                 continue
             contributors.append(contrib)
 
