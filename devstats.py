@@ -148,7 +148,11 @@ class Config:
         # since we mean it inclusively -- so Jan 1 to Jan 31 includes Jan 31,
         # for example.
         self.since = self._get_datetime(since)
-        self.until = self._get_datetime(until) + datetime.timedelta(days=1)
+
+        if until is None:
+            self.until = datetime.datetime.now(tz=datetime.timezone.utc)
+        else:
+            self.until = self._get_datetime(until) + datetime.timedelta(days=1)
 
     def _get_datetime(self, date):
         if date is None:
