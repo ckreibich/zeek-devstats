@@ -128,6 +128,7 @@ class Config:
     # User accounts we ignore for contribution tracking:
     IGNORED_USERS = {
         "app/dependabot",
+        "zeek-bot"
     }
 
     # The issue labels we consider indications of invalid content, not counting
@@ -978,6 +979,10 @@ class Contributor:
         # Our custom names override any, present or not:
         if self.login in Contributor.HALL_OF_FAMERS:
             self.name = Contributor.HALL_OF_FAMERS[self.login]
+
+        # Some users have equal name and login: just use the latter.
+        if self.name == self.login:
+            self.name = None
 
     def __hash__(self):
         return hash(str(self.name) + str(self.login))
